@@ -6,7 +6,6 @@ services:
   zapcall:
     image: ghcr.io/usermontalvao/zapcall:latest
     # build: .
-    container_name: zapcall
     network_mode: host
     restart: unless-stopped
     shm_size: 1gb

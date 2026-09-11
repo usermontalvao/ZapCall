@@ -8,7 +8,6 @@ The image bundles Node 22, Google Chrome stable, Xvfb and the manager. `linux/am
 services:
   zapcall:
     image: ghcr.io/usermontalvao/zapcall:latest   # or: build: .
-    container_name: zapcall
     network_mode: host          # see below
     restart: unless-stopped
     shm_size: 1gb               # Chrome needs a large /dev/shm

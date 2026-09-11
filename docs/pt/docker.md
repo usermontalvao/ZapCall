@@ -8,7 +8,6 @@ A imagem traz Node 22, Google Chrome estável, Xvfb e o gerente. Só `linux/amd6
 services:
   zapcall:
     image: ghcr.io/usermontalvao/zapcall:latest   # ou: build: .
-    container_name: zapcall
     network_mode: host          # veja abaixo
     restart: unless-stopped
     shm_size: 1gb               # o Chrome precisa de um /dev/shm grande

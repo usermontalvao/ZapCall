@@ -1,13 +1,22 @@
 # ZapCall
 
-**Llamadas de voz y video por WhatsApp, como API.** ZapCall ejecuta el WhatsApp Web oficial dentro de un Chrome controlado y expone una interfaz HTTP + WebSocket para llamar, contestar, rechazar y colgar — con el audio y el video crudos de la llamada fluyendo por el mismo socket — además de mensajes, contactos y webhooks en el formato de la Evolution API. Muchos números, un solo servicio.
+**Llamadas de voz y video por WhatsApp, como API.**
+
+ZapCall convierte un número de WhatsApp en una línea telefónica programable. Ejecuta el WhatsApp Web oficial dentro de un Chrome controlado y expone una interfaz HTTP + WebSocket para llamar, contestar, rechazar y colgar — con el audio y el video crudos de la llamada fluyendo por el mismo socket, para que tu sistema lo reproduzca a un agente, lo grabe, lo transcriba o lo reenvíe — además de mensajes, contactos y webhooks en el formato de la Evolution API. Muchos números, un solo servicio, sin contrato de WhatsApp Business API.
+
+Pensado para CRMs, help desks y centros de atención que ya hablan con sus clientes por WhatsApp y quieren que las llamadas vivan en el mismo lugar que la conversación: clic para llamar desde la ficha del cliente, llamadas entrantes sonando en el agente correcto, grabaciones adjuntas al ticket.
 
 [![CI](https://github.com/usermontalvao/ZapCall/actions/workflows/ci.yml/badge.svg)](https://github.com/usermontalvao/ZapCall/actions/workflows/ci.yml)
 [![Licencia: MIT](https://img.shields.io/badge/licencia-MIT-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%E2%89%A5%2022.12-339933)](package.json)
 [![Docs](https://img.shields.io/badge/docs-PT%20%C2%B7%20EN%20%C2%B7%20ES-0969da)](docs/)
 
+[![Invítanos a un café](https://img.shields.io/badge/%E2%98%95_Inv%C3%ADtanos_a_un_caf%C3%A9-R%24_50-ffdd00?labelColor=1f2328)](https://mpago.la/1sba1dw)
+[![Patrocinadores](https://img.shields.io/badge/patrocinadores-ver_el_muro-8250df?labelColor=1f2328)](SUPPORTERS.md)
+
 [English](README.md) · [Português](README.pt-BR.md)
+
+> ☕ **ZapCall es gratuito e independiente.** No hay empresa detrás ni plan de pago. Si sustituyó un contrato de llamadas por minuto o te ahorró una semana de ingeniería inversa, [invita al equipo a un café](#apoya-el-proyecto) — cada café paga los números de prueba y las llamadas reales que se ejecutan cada noche para que siga funcionando tras cada actualización de WhatsApp. Quien apoya aparece en [SUPPORTERS.md](SUPPORTERS.md).
 
 > **Estado: experimental.** Las llamadas reales de voz y video funcionan hoy. La media de retorno depende de interfaces privadas de WhatsApp Web que Meta puede cambiar sin aviso, y automatizar WhatsApp Web va contra sus términos de servicio. Usa un número que puedas perder y lee [Limitaciones](#limitaciones) antes de depender de esto en producción.
 
@@ -71,6 +80,25 @@ ws://127.0.0.1:18475/instances/ventas/ws?clientId=mi-backend&token=TOKEN_DE_INST
 
 Servida por el servicio en **`/docs`** (PT / EN / ES, con búsqueda) y mantenida en Markdown en [`docs/`](docs/): instalación, instancias, autenticación, API REST, WebSocket, eventos, estado, errores, llamadas de audio, videollamadas, ejemplos con curl y JavaScript, integración con CRM, seguridad, Docker, variables de entorno.
 
+## Capturas
+
+El panel sigue el tema del sistema (claro / oscuro) y habla portugués, inglés y español.
+
+<table>
+  <tr>
+    <td align="center"><img src="docs/screenshots/panel-instances.png" alt="Instancias (claro)" width="420"><br><sub>Instancias — claro</sub></td>
+    <td align="center"><img src="docs/screenshots/panel-instances-dark.png" alt="Instancias (oscuro)" width="420"><br><sub>Instancias — oscuro</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/screenshots/panel-pairing.png" alt="Vinculación por QR" width="420"><br><sub>Vinculación por QR</sub></td>
+    <td align="center"><img src="docs/screenshots/panel-cards-dark.png" alt="Tarjetas (oscuro)" width="420"><br><sub>Tarjetas — oscuro</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/screenshots/panel-logs-dark.png" alt="Logs en vivo (oscuro)" width="420"><br><sub>Logs en vivo — oscuro</sub></td>
+    <td align="center"><img src="docs/screenshots/docs-dark.png" alt="Documentación integrada (oscuro)" width="420"><br><sub>Documentación integrada — oscuro</sub></td>
+  </tr>
+</table>
+
 ## Seguridad
 
 Lee [SECURITY.md](SECURITY.md): modelo de amenaza, controles incorporados, tus responsabilidades y cómo reportar una vulnerabilidad. En resumen: los tokens de instancia se quedan en el backend, `DATA_DIR` es privado, el TLS termina delante y el servicio nunca sale del loopback sin un proxy autenticado.
@@ -84,6 +112,38 @@ npm run probe   # autotest de media en un Chrome real, sin sesión de WhatsApp
 ```
 
 Arquitectura y organización de archivos: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Contribuciones: [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## Hoja de ruta
+
+Planificado, más o menos en este orden. Abre un issue para votar o proponer otra cosa.
+
+- [ ] **Grabación integrada** — `record: true` en la llamada escribe un WAV (estéreo: agente / contacto) en `DATA_DIR` y lo anuncia en `call_ended`.
+- [ ] **Ganchos de transcripción** — enviar el audio de la llamada a un servicio de transcripción y entregar el texto como evento.
+- [ ] **Tokens con alcance** — credenciales por agente con permisos (marcar, contestar, escuchar, mensajes), para que los navegadores se conecten sin el token de la instancia.
+- [ ] **Subir a video a mitad de llamada** — sin colgar (hoy `501`).
+- [ ] **Transferencia de llamada** entre instancias y transferencia asistida entre dos agentes.
+- [ ] **Especificación OpenAPI** y SDKs oficiales (Node.js, Python).
+- [ ] **Endpoint de métricas** (`/metrics`, Prometheus) — llamadas, duraciones, tasa de tramas, memoria de Chrome.
+- [ ] **Usuarios y roles en el panel** — varios administradores, registro de auditoría, lectores.
+- [ ] **Plantillas de mensaje y respuestas rápidas** en el panel.
+- [ ] **Más idiomas** en el panel y la documentación (contribuciones bienvenidas — ver [CONTRIBUTING.md](CONTRIBUTING.md#adding-a-language)).
+- [ ] **Helm chart** e imagen ARM64 (depende de un Chrome con H.264 para Linux arm64).
+
+## Apoya el proyecto
+
+ZapCall es gratuito y seguirá siéndolo — MIT, sin plan de pago, sin empresa detrás. Lo que *sí* cuesta es real: WhatsApp cambia su cliente web cada pocas semanas y cada cambio puede dejar mudas todas las llamadas; mantener ZapCall funcionando exige números de prueba, un servidor que hace llamadas reales cada noche y horas leyendo código minificado. Una API comercial de llamadas por WhatsApp cobra por minuto; aquí pagas lo que creas justo, una vez, y todos se benefician.
+
+**Lo que paga tu café**
+
+| | Importe | Financia |
+|:---:|:---:|---|
+| ☕ | [**R$ 50 — un café**](https://mpago.la/1sba1dw) | Un número de prueba durante un mes, para verificar vinculación y llamadas en un teléfono real. |
+| ☕☕ | [**R$ 200 — café grande**](https://mpago.la/1Lkup75) | Un mes del servidor que hace las llamadas reales de voz y video cada noche y detecta las actualizaciones de WhatsApp antes que tú. |
+| ☕☕☕ | [**R$ 1.000 — un mes de café**](https://mpago.la/22kZeoS) | Una semana completa de trabajo en la [hoja de ruta](#hoja-de-ruta) — grabación, tokens con alcance, transcripción — con tu nombre en las notas de la versión. |
+
+El pago es a través de Mercado Pago (tarjeta, Pix o boleto; funciona desde fuera de Brasil con tarjeta). Todo patrocinador, con cualquier importe, entra en el [muro de patrocinadores](SUPPORTERS.md) — abre un pull request con tu nombre o usuario, o indícalo en la nota del pago.
+
+**Formas de ayudar que no cuestan nada:** dar una estrella al repositorio (así lo encuentran otros desarrolladores), reportar un bug con los logs de la instancia, traducir una página de la documentación, o contárselo a alguien que todavía paga por llamada.
 
 ## Limitaciones
 

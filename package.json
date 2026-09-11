@@ -17,7 +17,9 @@
     "call": "node scripts/call.mjs",
     "qr": "node scripts/qr.mjs",
     "demo": "node scripts/demo.mjs",
-    "screenshots": "node scripts/screenshots.mjs"
+    "screenshots": "node scripts/screenshots.mjs",
+    "changelog": "node scripts/changelog.mjs",
+    "version": "node scripts/changelog.mjs $npm_package_version > /dev/null && git add -A CHANGELOG.md"
   },
   "dependencies": {
     "@wppconnect/wa-js": "^4.6.0",

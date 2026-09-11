@@ -39,6 +39,27 @@ try {
   await page.goto(demo.base + '/docs#websocket', { waitUntil: 'load' });
   await esperar(1500);
   await page.screenshot({ path: join(SAIDA, 'docs.png') });
+
+  // The same screens in dark mode.
+  await page.evaluate(() => localStorage.setItem('zc.theme', 'dark'));
+  await page.reload({ waitUntil: 'load' });
+  await esperar(1500);
+  await page.screenshot({ path: join(SAIDA, 'docs-dark.png') });
+  await page.goto(demo.base + '/', { waitUntil: 'load' });
+  await esperar(2500);
+  await page.screenshot({ path: join(SAIDA, 'panel-instances-dark.png') });
+  await page.evaluate(() => document.querySelector('#vista [data-v="cartoes"]')?.click());
+  await esperar(600);
+  await page.screenshot({ path: join(SAIDA, 'panel-cards-dark.png') });
+  await page.evaluate(() => { document.querySelector('#vista [data-v="tabela"]')?.click(); document.querySelector('#corpoTabela tr')?.click(); });
+  await esperar(800);
+  await page.evaluate(() => document.querySelector('#gAbas [data-aba="logs"]')?.click());
+  await esperar(1500);
+  await page.screenshot({ path: join(SAIDA, 'panel-logs-dark.png') });
+  await page.keyboard.press('Escape');
+  await page.evaluate(() => { location.hash = '#diagnostico'; });
+  await esperar(2000);
+  await page.screenshot({ path: join(SAIDA, 'panel-diagnostics-dark.png') });
   console.log('screenshots written to ' + SAIDA);
 } finally {
   await browser.close();

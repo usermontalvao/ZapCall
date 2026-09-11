@@ -61,6 +61,14 @@ For UI work without pairing a real number, create instances in the panel: they s
 3. Update the docs (three languages) and the changelog when behaviour changes.
 4. CI must be green.
 
+## Releases (maintainers)
+
+Versions follow [SemVer](https://semver.org/): `patch` for fixes, `minor` for features, `major` for breaking changes to the API or the media contract. The version lives in `package.json` and is shown in the panel (Settings and Diagnostics) and in `GET /manager/config`.
+
+1. Move the entries under `## [Unreleased]` in `CHANGELOG.md` to a new `## [x.y.z] - YYYY-MM-DD` section (the `version` script refuses to continue if the section is missing).
+2. `npm version minor` (or `patch` / `major`) — bumps `package.json`, commits and creates the tag `vx.y.z`.
+3. `git push --follow-tags`. The **Release** workflow builds the Docker image (`ghcr.io/usermontalvao/zapcall:x.y.z`, `:x.y`, `:latest`) and publishes a GitHub Release with that changelog section as notes.
+
 ## Adding a language
 
 1. Add the language to `LANGS` in `src/page/zc-ui.js` and to `languages` in `docs/index.json`.

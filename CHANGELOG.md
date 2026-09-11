@@ -5,6 +5,12 @@ All notable changes to this project are documented here. The format follows [Kee
 ## [Unreleased]
 
 ### Added
+- Dark-mode screenshots, roadmap, support section and `SUPPORTERS.md`; `Sponsor` button (`.github/FUNDING.yml`).
+- Release workflow: pushing a `v*` tag publishes the Docker image to GHCR and a GitHub Release with the notes from this file.
+
+## [0.1.0] - 2026-09-11
+
+### Added
 - Built-in, searchable documentation at `/docs` in Portuguese, English and Spanish, served from `docs/<lang>/*.md`.
 - Panel redesign: table and card views, state filters, live logs with filtering, typed-name deletion, danger zone, QR pairing with countdown, PT/EN/ES, system/light/dark theme.
 - `src/security.mjs`: constant-time credential comparison, per-IP brute-force limiter, security headers (CSP without CDN, `Referrer-Policy: no-referrer`, `nosniff`, `frame-ancestors 'none'`), origin allow-list (`ALLOWED_ORIGINS`).
@@ -30,3 +36,6 @@ All notable changes to this project are documented here. The format follows [Kee
 ### Changed
 - Project renamed to **ZapCall** (package `zapcall`, env `ZAPCALL_*`, globals `window.__zapcall*`).
 - READMEs in three languages; `SECURITY.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `docs/ARCHITECTURE.md`, issue and PR templates.
+
+[Unreleased]: https://github.com/usermontalvao/ZapCall/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/usermontalvao/ZapCall/releases/tag/v0.1.0

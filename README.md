@@ -1,13 +1,22 @@
 # ZapCall
 
-**Voice and video calls over WhatsApp, as an API.** ZapCall runs the official WhatsApp Web inside a controlled Chrome and exposes an HTTP + WebSocket interface to place, answer, reject and end calls — with raw call audio and video flowing through the same socket — plus messages, contacts and webhooks in the Evolution API format. Many numbers, one service.
+**Voice and video calls over WhatsApp, as an API.**
+
+ZapCall turns a WhatsApp number into a programmable phone line. It runs the official WhatsApp Web inside a controlled Chrome and exposes an HTTP + WebSocket interface to place, answer, reject and end calls — with the raw call audio and video flowing through the same socket, so your system can play it to an agent, record it, transcribe it or forward it — plus messages, contacts and webhooks in the Evolution API format. Many numbers, one service, no WhatsApp Business API contract.
+
+Built for CRMs, help desks and call centres that already talk to customers on WhatsApp and want calls to live in the same place as the conversation: click-to-call from a customer card, incoming calls ringing on the right agent, recordings attached to the ticket.
 
 [![CI](https://github.com/usermontalvao/ZapCall/actions/workflows/ci.yml/badge.svg)](https://github.com/usermontalvao/ZapCall/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%E2%89%A5%2022.12-339933)](package.json)
 [![Docs](https://img.shields.io/badge/docs-PT%20%C2%B7%20EN%20%C2%B7%20ES-0969da)](docs/)
 
+[![Buy us a coffee](https://img.shields.io/badge/%E2%98%95_Buy_us_a_coffee-R%24_50-ffdd00?labelColor=1f2328)](https://mpago.la/1sba1dw)
+[![Supporters](https://img.shields.io/badge/supporters-see_the_wall-8250df?labelColor=1f2328)](SUPPORTERS.md)
+
 [Português](README.pt-BR.md) · [Español](README.es.md)
+
+> ☕ **ZapCall is free and independent.** No company behind it, no paid tier. If it replaces a per-minute call contract or saves you a week of reverse-engineering, [buy the team a coffee](#support-the-project) — every cup pays for test numbers and the nightly real-call tests that keep it working after each WhatsApp update. Supporters are listed in [SUPPORTERS.md](SUPPORTERS.md).
 
 > **Status: experimental.** Real voice and video calls work today. Return media depends on private WhatsApp Web interfaces that Meta can change without notice, and automating WhatsApp Web is against its terms of service. Use a number you can afford to lose and read [Limitations](#limitations) before relying on it in production.
 
@@ -23,7 +32,9 @@
 - [Security](#security)
 - [Screenshots](#screenshots)
 - [Development](#development)
+- [Roadmap](#roadmap)
 - [Contributing](#contributing)
+- [Support the project](#support-the-project)
 - [Limitations](#limitations)
 - [License](#license)
 
@@ -124,14 +135,24 @@ Read [SECURITY.md](SECURITY.md) for the threat model, built-in controls, your re
 
 ## Screenshots
 
+The panel follows the system theme (light / dark) and speaks Portuguese, English and Spanish.
+
 <table>
   <tr>
-    <td align="center"><img src="docs/screenshots/panel-instances.png" alt="Instances" width="420"><br><sub>Instances</sub></td>
+    <td align="center"><img src="docs/screenshots/panel-instances.png" alt="Instances (light)" width="420"><br><sub>Instances — light</sub></td>
+    <td align="center"><img src="docs/screenshots/panel-instances-dark.png" alt="Instances (dark)" width="420"><br><sub>Instances — dark</sub></td>
+  </tr>
+  <tr>
     <td align="center"><img src="docs/screenshots/panel-pairing.png" alt="Pairing by QR" width="420"><br><sub>Pairing by QR</sub></td>
+    <td align="center"><img src="docs/screenshots/panel-cards-dark.png" alt="Card view (dark)" width="420"><br><sub>Card view — dark</sub></td>
   </tr>
   <tr>
     <td align="center"><img src="docs/screenshots/panel-logs.png" alt="Live logs" width="420"><br><sub>Live logs</sub></td>
-    <td align="center"><img src="docs/screenshots/docs.png" alt="Built-in documentation" width="420"><br><sub>Built-in documentation</sub></td>
+    <td align="center"><img src="docs/screenshots/panel-logs-dark.png" alt="Live logs (dark)" width="420"><br><sub>Live logs — dark</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/screenshots/panel-diagnostics-dark.png" alt="Diagnostics (dark)" width="420"><br><sub>Diagnostics — dark</sub></td>
+    <td align="center"><img src="docs/screenshots/docs-dark.png" alt="Built-in documentation (dark)" width="420"><br><sub>Built-in documentation — dark</sub></td>
   </tr>
 </table>
 
@@ -156,9 +177,41 @@ docs/                Markdown documentation (pt / en / es) served at /docs
 test/                node:test suites (unit, integration, headless-Chrome end-to-end)
 ```
 
+## Roadmap
+
+Planned, roughly in order. Open an issue to vote or to propose something else.
+
+- [ ] **Built-in recording** — `record: true` on a call writes a WAV (stereo: agent / contact) to `DATA_DIR` and announces it in `call_ended`.
+- [ ] **Transcription hooks** — stream call audio to a speech-to-text provider and deliver transcripts as events.
+- [ ] **Scoped tokens** — per-agent credentials with permissions (dial, answer, listen, messages) so browsers can connect without the instance token.
+- [ ] **Video upgrade mid-call** — turn a voice call into video without hanging up (currently `501`).
+- [ ] **Call transfer** between instances and warm transfer between two agents on one call.
+- [ ] **OpenAPI specification** and official SDKs (Node.js, Python).
+- [ ] **Metrics endpoint** (`/metrics`, Prometheus) — calls, durations, media frame rates, Chrome memory.
+- [ ] **Panel users and roles** — several administrators, audit log, read-only viewers.
+- [ ] **Message templates and quick replies** in the panel.
+- [ ] **More languages** for the panel and the docs (contributions welcome — see [CONTRIBUTING.md](CONTRIBUTING.md#adding-a-language)).
+- [ ] **Helm chart** and an ARM64 image (blocked on a Chrome build with H.264 for Linux arm64).
+
 ## Contributing
 
 Issues and pull requests are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). Please run `npm run check && npm test` before opening a PR, keep the panel and the docs in all three languages, and never include tokens, QR codes or session data in reports.
+
+## Support the project
+
+ZapCall is free and will stay free — MIT, no paid tier, no company behind it. What it *does* cost is real: WhatsApp changes its web client every few weeks and each change can silence every call; keeping ZapCall working means test numbers, a server that places real calls every night, and hours reading minified code. A commercial WhatsApp calling API charges per minute; here you pay what you think it is worth, once, and everyone benefits.
+
+**What your coffee buys**
+
+| | Amount | Funds |
+|:---:|:---:|---|
+| ☕ | [**R$ 50 — a coffee**](https://mpago.la/1sba1dw) | One test number for a month, so pairing and calls are verified on a real phone. |
+| ☕☕ | [**R$ 200 — a big coffee**](https://mpago.la/1Lkup75) | A month of the server that runs the nightly real voice and video calls and catches WhatsApp updates before you do. |
+| ☕☕☕ | [**R$ 1.000 — a month of coffee**](https://mpago.la/22kZeoS) | A full week of work on the [roadmap](#roadmap) — recording, scoped tokens, transcription hooks — with your name on the release notes. |
+
+Payments go through Mercado Pago (card, Pix or boleto; works from outside Brazil with a card). Every supporter, at any amount, is added to the [wall of supporters](SUPPORTERS.md) — open a pull request adding your name or handle, or say so in the payment note.
+
+**Zero-cost ways to help:** star the repository (it is how other developers find it), report a bug with the instance logs, translate a documentation page, or tell someone who is still paying per call.
 
 ## Limitations
 

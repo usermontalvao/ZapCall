@@ -1,0 +1,11 @@
+data/
+node_modules/
+.git/
+.env
+.env.*
+!.env.example
+*.log
+*.secret
+scratch/
+coverage/
+test/

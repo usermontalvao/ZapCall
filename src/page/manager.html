@@ -1,0 +1,787 @@
+<!doctype html>
+<html lang="pt-BR">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ZapCall — painel</title>
+<!--
+  Painel do gerente. Tres telas sob a mesma barra de todas as paginas
+  (zc-ui.js): Instancias (tabela ou cartoes, acoes rapidas, detalhe em
+  gaveta com visao geral / webhook / API / logs / zona de perigo),
+  Diagnostico (maquina, peso de cada Chrome, autotestes) e Configuracoes.
+  Fala so com /manager/*, com a chave global guardada neste navegador e
+  enviada SEMPRE em header — nunca em URL.
+-->
+<script src="/static/zc-ui.js"></script>
+<style>
+  .pagina { max-width:1280px; margin:0 auto; padding:24px 20px 80px; display:grid; gap:18px; align-content:start; }
+  .tela { display:none; } .tela.ativa { display:grid; gap:18px; }
+  .cabecalho { display:flex; align-items:flex-start; gap:14px; flex-wrap:wrap; }
+  .cabecalho h1 { margin:0; font-size:22px; font-weight:600; letter-spacing:-.01em; }
+  .cabecalho p { margin:2px 0 0; color:var(--muted); }
+  .cabecalho .dir { margin-left:auto; display:flex; gap:8px; align-items:center; }
+  #flashes { display:grid; gap:8px; } #flashes:empty { display:none; }
+
+  .tiles { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:12px; }
+  .tile { background:var(--panel); border:1px solid var(--line); border-radius:var(--radius); padding:12px 14px; display:grid; gap:2px; }
+  .tile > span { color:var(--muted); font-size:12px; font-weight:500; display:flex; align-items:center; gap:6px; }
+  .tile > span svg { width:14px; height:14px; }
+  .tile > b { font-size:24px; font-weight:600; font-variant-numeric:tabular-nums; letter-spacing:-.01em; }
+  .tile.uso > b { color:var(--live); } .tile.ruim > b { color:var(--danger); }
+
+  .barra { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .busca { flex:1; min-width:220px; position:relative; }
+  .busca svg { position:absolute; left:10px; top:50%; transform:translateY(-50%); width:15px; height:15px; color:var(--faint); }
+  .busca input { padding-left:32px; }
+  .contador { color:var(--muted); font-size:13px; white-space:nowrap; }
+
+  /* tabela */
+  .tabela { overflow-x:auto; }
+  table { border-collapse:collapse; width:100%; font-size:13.5px; }
+  th, td { text-align:left; padding:10px 14px; border-bottom:1px solid var(--line); vertical-align:middle; white-space:nowrap; }
+  tr:last-child td { border-bottom:0; }
+  th { color:var(--muted); font-weight:500; font-size:12px; background:var(--panel-2); }
+  tbody tr { cursor:pointer; } tbody tr:hover td { background:var(--panel-2); }
+  tbody tr.emUso td:first-child { box-shadow:inset 3px 0 0 var(--live); }
+  .ident { display:flex; align-items:center; gap:10px; }
+  .avatar { width:32px; height:32px; border-radius:6px; display:grid; place-items:center; font-weight:600; color:#fff; font-size:12px; flex:none; }
+  .ident .nome { font-weight:600; } .ident .sub { color:var(--muted); font-size:12px; }
+  td .acoes { display:flex; gap:4px; justify-content:flex-end; }
+  .chamadaMini { display:inline-flex; align-items:center; gap:8px; }
+  .eq { display:inline-flex; align-items:flex-end; gap:2px; height:14px; }
+  .eq i { width:3px; background:var(--live); border-radius:2px; animation:eq .9s ease-in-out infinite; }
+  .eq i:nth-child(2) { animation-delay:.15s } .eq i:nth-child(3) { animation-delay:.3s } .eq i:nth-child(4) { animation-delay:.45s }
+  @keyframes eq { 0%,100% { height:4px } 50% { height:14px } }
+  .mono { font-family:var(--mono); font-size:12.5px; }
+  .fraco { color:var(--muted); }
+  .skelLinha td > span { display:inline-block; height:14px; width:60%; }
+
+  /* cartoes */
+  .grade { display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:12px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:var(--radius); padding:14px; display:grid; gap:12px; cursor:pointer; }
+  .card:hover { border-color:var(--line-2); }
+  .card.emUso { border-color:var(--live-line); }
+  .card .topo { display:flex; align-items:center; gap:10px; } .card .topo .zc-label { margin-left:auto; }
+  .card .info { display:grid; grid-template-columns:1fr 1fr; gap:6px 12px; font-size:12.5px; color:var(--muted); }
+  .card .info b { color:var(--ink); font-weight:500; font-variant-numeric:tabular-nums; }
+  .emUsoBox { display:flex; align-items:center; gap:10px; background:var(--live-soft); border:1px solid var(--live-line); border-radius:6px; padding:8px 10px; font-size:13px; }
+  .emUsoBox .tempo { margin-left:auto; font-variant-numeric:tabular-nums; font-weight:600; color:var(--live); }
+  .card .rodape { display:flex; gap:4px; flex-wrap:wrap; }
+
+  .kv { display:grid; grid-template-columns:180px 1fr; gap:10px 14px; font-size:13.5px; align-items:center; }
+  .kv > span { color:var(--muted); }
+  .medidor { height:8px; border-radius:999px; background:var(--panel-3); overflow:hidden; margin-top:8px; }
+  .medidor i { display:block; height:100%; background:var(--brand); transition:width .4s; }
+  .medidor.alerta i { background:var(--warn); } .medidor.critico i { background:var(--danger); }
+  .teste { display:grid; gap:4px; }
+  .teste div { display:flex; gap:10px; align-items:center; padding:7px 10px; border-radius:6px; background:var(--panel-2); font-size:13px; flex-wrap:wrap; border:1px solid var(--line-soft); }
+  .teste .ok { color:var(--brand-ink); font-weight:700; } .teste .falha { color:var(--danger); font-weight:700; }
+  .teste small { color:var(--muted); margin-left:auto; text-align:right; }
+
+  /* gaveta */
+  .fundo { position:fixed; inset:0; background:rgba(1,4,9,.5); display:none; z-index:190; }
+  .fundo.aberto { display:block; }
+  .gaveta { position:fixed; top:0; right:0; bottom:0; width:min(640px,100%); background:var(--panel); border-left:1px solid var(--line); z-index:200; transform:translateX(100%); transition:transform .2s ease; display:flex; flex-direction:column; }
+  .gaveta.aberta { transform:none; }
+  .gaveta header { display:flex; align-items:center; gap:12px; padding:14px 18px; border-bottom:1px solid var(--line); }
+  .gaveta header h2 { margin:0; font-size:16px; font-weight:600; }
+  .gaveta header .fechar { margin-left:auto; }
+  .abas { display:flex; gap:2px; padding:0 12px; border-bottom:1px solid var(--line); overflow-x:auto; background:var(--panel-2); }
+  .abas button { border:0; background:transparent; padding:10px 12px; color:var(--muted); font-weight:500; cursor:pointer; border-bottom:2px solid transparent; margin-bottom:-1px; white-space:nowrap; font-size:13.5px; }
+  .abas button.ativa { color:var(--ink); border-color:#fd8c73; font-weight:600; }
+  .gaveta .corpo { padding:18px; overflow:auto; display:grid; gap:16px; align-content:start; }
+  .campo { display:grid; gap:5px; }
+  .campo label { font-size:13px; font-weight:600; }
+  .campo .ajuda { font-size:12px; color:var(--muted); }
+  .campo .erro { font-size:12px; color:var(--danger); min-height:16px; }
+  .chips { display:flex; gap:6px; flex-wrap:wrap; }
+  .chips label { display:inline-flex; align-items:center; gap:5px; font-size:12.5px; padding:3px 9px; border:1px solid var(--line-2); border-radius:999px; cursor:pointer; background:var(--panel-2); }
+  .chips input { margin:0; }
+  .entregas { display:grid; gap:4px; font-size:12.5px; }
+  .entregas div { display:grid; grid-template-columns:70px 1fr auto auto; gap:10px; padding:6px 8px; border-radius:6px; background:var(--panel-2); font-variant-numeric:tabular-nums; }
+  .ok { color:var(--brand-ink); } .erro { color:var(--danger); }
+  .perigoBox { border:1px solid var(--danger-line); border-radius:var(--radius); }
+  .perigoBox > div { display:flex; gap:12px; align-items:center; padding:12px 14px; border-bottom:1px solid var(--line); flex-wrap:wrap; }
+  .perigoBox > div:last-child { border-bottom:0; }
+  .perigoBox b { display:block; } .perigoBox span { color:var(--muted); font-size:12.5px; }
+  .perigoBox .zc-btn { margin-left:auto; }
+  .logs { background:var(--code-bg); border:1px solid var(--code-line); border-radius:6px; font:12px/1.5 var(--mono); height:min(60vh,520px); overflow:auto; padding:8px 0; }
+  .logs div { padding:0 12px; white-space:pre-wrap; word-break:break-all; }
+  .logs div:hover { background:var(--panel-3); }
+  .logs .n { color:var(--faint); display:inline-block; width:34px; text-align:right; margin-right:12px; user-select:none; }
+  .logs .erro { color:var(--danger-ink); } .logs .aviso { color:var(--warn); } .logs .okl { color:var(--brand-ink); }
+
+  /* modal */
+  .modal { position:fixed; inset:0; display:none; align-items:center; justify-content:center; z-index:220; padding:20px; background:rgba(1,4,9,.5); }
+  .modal.aberto { display:flex; }
+  .modalCartao { background:var(--panel); border:1px solid var(--line); border-radius:var(--radius-lg); width:min(520px,100%); max-height:92vh; overflow:auto; box-shadow:var(--shadow-lg); display:grid; }
+  .modalCartao h3 { margin:0; font-size:15px; font-weight:600; padding:14px 18px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:10px; }
+  .modalCartao h3 .fechar { margin-left:auto; }
+  .modalCartao .mc { padding:18px; display:grid; gap:14px; }
+  .modalCartao .rodape { display:flex; gap:8px; justify-content:flex-end; padding:12px 18px; border-top:1px solid var(--line); background:var(--panel-2); border-radius:0 0 var(--radius-lg) var(--radius-lg); }
+  .qr { display:grid; place-items:center; gap:10px; }
+  .qr img { width:min(260px,70vw); height:auto; aspect-ratio:1; image-rendering:pixelated; border-radius:8px; background:#fff; padding:10px; border:1px solid var(--line); }
+  .qr .barraTempo { width:min(260px,70vw); height:4px; border-radius:2px; background:var(--panel-3); overflow:hidden; }
+  .qr .barraTempo i { display:block; height:100%; background:var(--brand); transition:width 1s linear; }
+  .passos { display:grid; gap:6px; font-size:13px; color:var(--muted); }
+  .passos div { display:flex; gap:10px; align-items:flex-start; }
+  .passos .n { flex:none; width:20px; height:20px; border-radius:50%; background:var(--panel-3); color:var(--ink); display:grid; place-items:center; font-size:11px; font-weight:600; }
+
+  /* login */
+  .login { display:grid; place-items:center; min-height:calc(100vh - var(--nav-h)); padding:24px; }
+  .loginCartao { width:min(420px,100%); display:grid; gap:14px; }
+  .loginCartao .marca { display:flex; align-items:center; gap:10px; font-weight:600; font-size:20px; justify-content:center; }
+  .loginCartao .zc-box { padding:22px; display:grid; gap:12px; }
+  .loginCartao .rodapeLogin { text-align:center; font-size:13px; color:var(--muted); border:1px solid var(--line); border-radius:var(--radius); padding:12px; }
+  .oculto { display:none !important; }
+  .girando { animation:gira 1s linear infinite; } @keyframes gira { to { transform:rotate(360deg) } }
+
+  @media (max-width:760px) {
+    .pagina { padding:14px 12px 60px; gap:14px; }
+    .cabecalho .dir { margin-left:0; width:100%; } .cabecalho .dir .zc-btn { flex:1; }
+    .tiles { grid-template-columns:1fr 1fr; }
+    .kv { grid-template-columns:1fr; gap:2px 0; } .kv > span { margin-top:10px; font-size:12px; text-transform:uppercase; letter-spacing:.04em; }
+    .gaveta .corpo { padding:14px; }
+    .entregas div { grid-template-columns:1fr 1fr; }
+    .vistaSeg { display:none; }
+  }
+</style>
+
+<div class="login" id="telaLogin">
+  <div class="loginCartao">
+    <div class="marca" id="loginLogo"></div>
+    <div class="zc-box">
+      <div><b data-i18n="entrar"></b><div class="fraco" style="font-size:13px" data-i18n="entrarTxt"></div></div>
+      <div class="campo"><label data-i18n="chaveGlobal"></label><input class="zc-input" id="chave" type="password" autocomplete="off" placeholder="••••••••••••••••" spellcheck="false"><div class="erro" id="chaveErro"></div></div>
+      <button class="zc-btn primario" id="bEntrar" data-i18n="botaoEntrar"></button>
+    </div>
+    <div class="rodapeLogin" data-i18n="soIntegrar"></div>
+  </div>
+</div>
+
+<div class="pagina oculto" id="app">
+  <div id="flashes"></div>
+  <section class="tela ativa" id="telaInstancias">
+    <div class="cabecalho">
+      <div><h1 data-i18n="h1"></h1><p data-i18n="h1sub"></p></div>
+      <div class="dir"><button class="zc-btn" id="bAtualizar" title="R"><span id="icAtualizar"></span><span data-i18n="atualizar"></span></button><button class="zc-btn primario" id="bNova"><span id="icMais"></span><span data-i18n="nova"></span></button></div>
+    </div>
+    <div class="tiles">
+      <div class="tile"><span data-i18n="tTotal"></span><b id="tTotal">–</b></div>
+      <div class="tile"><span data-i18n="tPareadas"></span><b id="tPareadas">–</b></div>
+      <div class="tile uso"><span data-i18n="tUso"></span><b id="tUso">–</b></div>
+      <div class="tile"><span data-i18n="tQr"></span><b id="tQr">–</b></div>
+      <div class="tile ruim"><span data-i18n="tParadas"></span><b id="tParadas">–</b></div>
+    </div>
+    <div class="barra">
+      <div class="busca"><span id="icBusca"></span><input class="zc-input" id="busca" data-i18n-ph="buscar" autocomplete="off"></div>
+      <select class="zc-select" id="filtro"></select>
+      <div class="zc-seg vistaSeg" id="vista"><button data-v="tabela" data-i18n="vTabela"></button><button data-v="cartoes" data-i18n="vCartoes"></button></div>
+      <span class="contador" id="contador"></span>
+    </div>
+    <div class="zc-box tabela" id="caixaTabela"><table><thead id="cabTabela"></thead><tbody id="corpoTabela"></tbody></table></div>
+    <div class="grade oculto" id="grade"></div>
+  </section>
+
+  <section class="tela" id="telaDiag">
+    <div class="cabecalho"><div><h1 data-i18n="diagTit"></h1><p data-i18n="diagSub"></p></div><div class="dir"><button class="zc-btn" id="bDiagAtualizar" data-i18n="atualizar"></button></div></div>
+    <div class="tiles" id="diagTiles"></div>
+    <div class="zc-box"><header data-i18n="diagMaquina"></header><div class="zc-corpo kv" id="diagMaquina"></div></div>
+    <div class="zc-box"><header data-i18n="diagPeso"></header><div class="tabela"><table id="diagTabela"></table></div><div class="zc-corpo fraco" style="font-size:13px;padding-top:10px" data-i18n="diagPesoTxt"></div></div>
+    <div class="zc-box"><header data-i18n="diagTestes"></header><div class="zc-corpo" style="display:grid;gap:12px"><p class="fraco" style="margin:0;font-size:13px" data-i18n="diagTestesTxt"></p><div id="diagTestesLista" style="display:grid;gap:10px"></div></div></div>
+  </section>
+
+  <section class="tela" id="telaConfig">
+    <div class="cabecalho"><div><h1 data-i18n="configTit"></h1><p data-i18n="configSub"></p></div></div>
+    <div class="zc-box"><header data-i18n="aparencia"></header><div class="zc-corpo kv">
+      <span data-i18n="idioma"></span><div style="display:flex;gap:8px;flex-wrap:wrap" id="cfgIdioma"></div>
+      <span data-i18n="tema"></span><div style="display:flex;gap:8px;flex-wrap:wrap" id="cfgTema"></div>
+      <span></span><div class="fraco" style="font-size:12.5px" data-i18n="aparenciaTxt"></div>
+    </div></div>
+    <div class="zc-box"><header data-i18n="acesso"></header><div class="zc-corpo kv" id="cfgAcesso"></div></div>
+    <div class="zc-box"><header data-i18n="servico"></header><div class="zc-corpo kv" id="cfgServico"></div></div>
+  </section>
+</div>
+
+<div class="fundo" id="fundo"></div>
+<aside class="gaveta" id="gaveta" aria-hidden="true">
+  <header><div class="avatar" id="gAvatar">?</div><div><h2 id="gNome">—</h2><div id="gSub" class="fraco" style="font-size:12.5px"></div></div><button class="zc-btn icone fechar" id="gFechar" aria-label="close"></button></header>
+  <div class="abas" id="gAbas"><button class="ativa" data-aba="geral" data-i18n="abaGeral"></button><button data-aba="webhook" data-i18n="abaWebhook"></button><button data-aba="codigo" data-i18n="abaCodigo"></button><button data-aba="logs" data-i18n="abaLogs"></button><button data-aba="perigo" data-i18n="abaPerigo"></button></div>
+  <div class="corpo" id="gCorpo"></div>
+</aside>
+<div class="modal" id="modal"><div class="modalCartao" id="modalConteudo" role="dialog" aria-modal="true"></div></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = ZC.esc, I = ZC.ICONES;
+
+// ------------------------------------------------------------- idiomas
+const I18N = {
+  pt: {
+    titulo: 'ZapCall — painel', entrar: 'Entrar no painel', entrarTxt: 'Cole a chave global. Ela fica só neste navegador e vai sempre em header — nunca na URL.',
+    chaveGlobal: 'Chave global', botaoEntrar: 'Entrar', soIntegrar: 'Só quer integrar? A <a href="/docs">documentação</a> não precisa de chave.',
+    sair: 'Sair', gerenteOk: 'gerente ok', gerenteFora: 'gerente fora', chaveInvalida: 'chave inválida', chaveErrada: 'Chave global incorreta. Confira em DATA_DIR/manager.json ou na variável ZAPCALL_API_KEY.', semServico: 'Não consegui falar com o gerente. Ele está no ar?', verificando: 'verificando…', bloqueado: 'Muitas tentativas inválidas deste endereço. Aguarde um minuto.',
+    sessaoExpirou: 'A chave guardada não vale mais. Entre de novo.', servicoFora: 'Sem resposta do gerente. Tentando de novo…', servicoVoltou: 'Gerente de volta.',
+    h1: 'Instâncias', h1sub: 'Cada instância é um número do WhatsApp pareado, com uma chamada por vez.', nova: 'Nova instância', atualizar: 'Atualizar',
+    tTotal: 'Instâncias', tPareadas: 'Pareadas', tUso: 'Em chamada', tQr: 'Aguardando QR', tParadas: 'Paradas', buscar: 'Filtrar por nome, rótulo ou número…',
+    fTodas: 'Todos os estados', fUso: 'Em chamada', fLivres: 'Livres', fQr: 'Aguardando QR', fParadas: 'Paradas ou desligadas', vTabela: 'Tabela', vCartoes: 'Cartões', mostrando: '{n} de {t}',
+    cInstancia: 'Instância', cEstado: 'Estado', cNumero: 'Número', cChamada: 'Chamada', cProcesso: 'Processo', cWebhook: 'Webhook', cAcoes: 'Ações',
+    desligada: 'Desligada', parada: 'Parada', subindo: 'Subindo', aguardandoQr: 'Aguardando QR', emUso: 'Em chamada', livre: 'Livre',
+    semRotulo: 'sem rótulo', recebendoDe: 'Recebendo de', ligandoPara: 'Ligando para', contatoLid: 'contato (LID)', naoIdentificado: 'número não identificado', video: 'vídeo', voz: 'voz',
+    numero: 'Número', porta: 'porta', webhook: 'Webhook', ativo: 'ativo', nao: 'não', noArHa: 'no ar há', min: 'min', h: 'h', d: 'd',
+    parear: 'Parear', discador: 'Discador', codigo: 'API', reiniciar: 'Reiniciar', ligar: 'Ligar', desligar: 'Desligar', desparear: 'Desparear', excluir: 'Excluir', detalhes: 'Detalhes',
+    vazioTit: 'Nenhuma instância ainda', vazioTxt: 'Crie a primeira e pareie pelo QR. Cada instância é um número do WhatsApp.', filtroVazioTit: 'Nada por aqui', filtroVazioTxt: 'Nenhuma instância bate com o filtro.',
+    abaGeral: 'Visão geral', abaWebhook: 'Webhook', abaCodigo: 'API', abaLogs: 'Logs', abaPerigo: 'Zona de perigo', fechar: 'Fechar', semSessao: 'sem sessão pareada',
+    rotulo: 'Rótulo', rotuloEx: 'ex.: Atendimento', processo: 'Processo', parado: 'parado', pid: 'pid', criadaEm: 'Criada em', limite: 'Limite', limiteTxt: '1 chamada por vez (regra do WhatsApp Web)', salvarRotulo: 'Salvar rótulo', rotuloSalvo: 'Rótulo salvo', abrirDiscador: 'Abrir discador', rodarTeste: 'Rodar autoteste', estado: 'Estado', tentativas: 'Reinícios automáticos',
+    desparearTit: 'Desparear “{n}”?', desparearTxt: 'A sessão do WhatsApp será apagada e a instância volta ao QR. O token continua o mesmo.', despareada: '{n} despareada', desparearDesc: 'Apaga a sessão do WhatsApp; a instância volta ao QR.',
+    excluirTit: 'Excluir “{n}”', excluirTxt: 'Remove a instância do cadastro e derruba o processo. Para confirmar, digite o nome da instância.', excluirCheck: 'Apagar também a sessão pareada (perfil do Chrome)', excluida: '{n} excluída', excluirDesc: 'Remove a instância do cadastro. Irreversível.', digiteNome: 'digite {n} para confirmar',
+    reiniciando: 'Reiniciando {n}…', ligada: '{n} ligada', desligadaMsg: '{n} desligada', reiniciarDesc: 'Derruba e sobe o Chrome. A sessão pareada é mantida.', desligarDesc: 'Para o processo e deixa a instância desligada até ligar de novo.',
+    novaTit: 'Nova instância', nomeLbl: 'Nome', nomeAjuda: 'Vai na URL e no diretório: a-z, 0-9, - e _ (até 32).', nomeInvalido: 'Use só a-z, 0-9, - e _, começando por letra ou número.', rotuloOpc: 'Rótulo (opcional)', rotuloPh: 'Atendimento comercial', webhookOpc: 'Webhook (opcional)', webhookInvalido: 'A URL precisa começar com http:// ou https://', novaDica: 'Depois de criar, pareie pelo QR. A instância aceita uma chamada por vez.', cancelar: 'Cancelar', criar: 'Criar instância', criando: 'Criando…', criada: 'Instância {n} criada — pareie pelo QR',
+    parearTit: 'Parear “{n}”', p1: 'Abra o WhatsApp no celular.', p2: 'Toque em <b>Dispositivos conectados › Conectar dispositivo</b>.', p3: 'Aponte a câmera para o código. Ele gira a cada ~20 s.', procurandoQr: 'Procurando o QR…', pareado: 'Pareado', podeFechar: 'Pode fechar esta janela.', chromeSubindo: 'O Chrome da instância ainda está subindo…', codigoTem: 'Código gerado há {s} s', semQr: 'Sem QR no momento — a instância pode estar recarregando. Tentando de novo…',
+    whTxt: 'Cada evento vira um <code>POST</code> na sua URL, com até 3 tentativas. Lista vazia = todos os eventos. A mídia da chamada não vai por webhook (só pelo WebSocket).', url: 'URL', eventos: 'Eventos', salvarWebhook: 'Salvar webhook', webhookSalvo: 'Webhook salvo', ultimasEntregas: 'Últimas entregas', nenhumaAinda: 'Nenhuma entrega ainda.', tentativa: 'tent.',
+    tokenTxt: 'O token da instância dá acesso só a “{n}”. Guarde no seu backend; nunca no navegador do usuário final.', token: 'Token da instância', mostrar: 'Mostrar', ocultar: 'Ocultar', girarToken: 'Gerar outro token', girarTit: 'Gerar outro token?', girarTxt: 'O token atual para de valer na hora e a instância reinicia.', tokenNovo: 'Novo token gerado', girarDesc: 'Invalida o token atual e reinicia a instância.',
+    exLigar: 'Ligar (voz)', exEstado: 'Estado da instância', exWs: 'Eventos + mídia (WebSocket)', exDiscador: 'Discador de referência', docsLink: 'Documentação completa da API', semAcesso: '(sem acesso)',
+    ultimasLinhas: '{n} linhas', vazio: 'Sem linhas ainda.', confirmar: 'Confirmar', autoAtualizar: 'Ao vivo', filtrarLogs: 'Filtrar linhas…', copiarLogs: 'Copiar',
+    diagTit: 'Diagnóstico', diagSub: 'A máquina, o peso de cada instância e os autotestes — antes de culpar a rede.', diagMaquina: 'Máquina', diagPeso: 'Peso por instância', diagPesoTxt: 'Cada Chrome pesa ~400–900 MB. Acima de 1,5 GB por instância, ou com memória livre abaixo de 15%, não crie mais instâncias nesta máquina.', diagTestes: 'Autotestes', diagTestesTxt: 'Verifica processo, API, latência, sessão, ganchos de mídia, ponte, adaptador nativo e memória do Chrome. Não faz chamada.',
+    tCpu: 'CPUs · carga 1 min', tMem: 'Memória livre', tDisco: 'Disco livre (dados)', versao: 'Versão', node: 'Node', uptime: 'No ar há', gerenteMem: 'Gerente (RAM)', inst: 'Instância', chromeProc: 'Processos Chrome', ram: 'RAM', cpu: 'CPU', testar: 'Testar', testando: 'Testando…', passou: 'Passou', falhou: 'Falhou', semTeste: 'Clique em Testar.',
+    configTit: 'Configurações', configSub: 'Aparência, acesso e onde o serviço guarda as coisas.', aparencia: 'Aparência', idioma: 'Idioma', tema: 'Tema', sistema: 'Sistema', escuro: 'Escuro', claro: 'Claro', aparenciaTxt: 'A escolha vale para o painel, a documentação, o discador e a página de pareamento neste navegador.',
+    acesso: 'Acesso', cfgChaveK: 'Chave global', cfgChaveTxt: 'Administra todas as instâncias. Vem de <code>ZAPCALL_API_KEY</code> ({o}). Para trocar, defina a variável (ou edite <code>DATA_DIR/manager.json</code>) e reinicie o gerente. Só em header, nunca na URL.', origemEnv: 'variável de ambiente', origemArquivo: 'gerada e guardada em arquivo', cfgTokenK: 'Token de instância', cfgTokenTxt: 'Um por instância, só dá acesso a ela. Gire na aba <b>API</b> da instância ou por <code>POST /instance/token/:nome</code>.', cfgOrigensK: 'Origens permitidas', cfgOrigensTxt: 'qualquer origem (defina <code>ALLOWED_ORIGINS</code> para restringir CORS e WebSocket)', sairK: 'Sessão neste navegador', sairTxt: 'Esquecer a chave guardada aqui',
+    servico: 'Serviço', cfgPortaK: 'Porta do gerente', cfgPortasK: 'Portas das instâncias', cfgPortasTxt: 'no loopback, a partir de {p}', cfgDadosK: 'Dados', cfgDadosTxt: 'cadastro, chave e sessões pareadas — é o volume a preservar', cfgChromeK: 'Chrome', autodetectado: 'autodetectado', cfgInstK: 'Instâncias cadastradas', cfgDdiK: 'DDI padrão', cfgDdiTxt: 'nenhum (números nacionais são recusados; defina <code>DEFAULT_COUNTRY_CODE</code>)', cfgDocsK: 'Documentação', cfgDocsTxt: 'manual completo (PT/EN/ES), dentro desta instalação',
+  },
+  en: {
+    titulo: 'ZapCall — panel', entrar: 'Sign in to the panel', entrarTxt: 'Paste the global key. It stays in this browser only and is always sent as a header — never in the URL.',
+    chaveGlobal: 'Global key', botaoEntrar: 'Sign in', soIntegrar: 'Just integrating? The <a href="/docs">documentation</a> needs no key.',
+    sair: 'Sign out', gerenteOk: 'manager ok', gerenteFora: 'manager down', chaveInvalida: 'invalid key', chaveErrada: 'Wrong global key. Check DATA_DIR/manager.json or the ZAPCALL_API_KEY variable.', semServico: 'Could not reach the manager. Is it running?', verificando: 'checking…', bloqueado: 'Too many invalid attempts from this address. Wait a minute.',
+    sessaoExpirou: 'The stored key is no longer valid. Sign in again.', servicoFora: 'No answer from the manager. Retrying…', servicoVoltou: 'Manager is back.',
+    h1: 'Instances', h1sub: 'Each instance is a paired WhatsApp number, with one call at a time.', nova: 'New instance', atualizar: 'Refresh',
+    tTotal: 'Instances', tPareadas: 'Paired', tUso: 'On a call', tQr: 'Waiting for QR', tParadas: 'Stopped', buscar: 'Filter by name, label or number…',
+    fTodas: 'All states', fUso: 'On a call', fLivres: 'Free', fQr: 'Waiting for QR', fParadas: 'Stopped or disabled', vTabela: 'Table', vCartoes: 'Cards', mostrando: '{n} of {t}',
+    cInstancia: 'Instance', cEstado: 'State', cNumero: 'Number', cChamada: 'Call', cProcesso: 'Process', cWebhook: 'Webhook', cAcoes: 'Actions',
+    desligada: 'Disabled', parada: 'Stopped', subindo: 'Starting', aguardandoQr: 'Waiting for QR', emUso: 'On a call', livre: 'Free',
+    semRotulo: 'no label', recebendoDe: 'Receiving from', ligandoPara: 'Calling', contatoLid: 'contact (LID)', naoIdentificado: 'unknown number', video: 'video', voz: 'voice',
+    numero: 'Number', porta: 'port', webhook: 'Webhook', ativo: 'on', nao: 'no', noArHa: 'up for', min: 'min', h: 'h', d: 'd',
+    parear: 'Pair', discador: 'Dialer', codigo: 'API', reiniciar: 'Restart', ligar: 'Enable', desligar: 'Disable', desparear: 'Unpair', excluir: 'Delete', detalhes: 'Details',
+    vazioTit: 'No instances yet', vazioTxt: 'Create the first one and pair it by QR. Each instance is a WhatsApp number.', filtroVazioTit: 'Nothing here', filtroVazioTxt: 'No instance matches the filter.',
+    abaGeral: 'Overview', abaWebhook: 'Webhook', abaCodigo: 'API', abaLogs: 'Logs', abaPerigo: 'Danger zone', fechar: 'Close', semSessao: 'no paired session',
+    rotulo: 'Label', rotuloEx: 'e.g. Support', processo: 'Process', parado: 'stopped', pid: 'pid', criadaEm: 'Created at', limite: 'Limit', limiteTxt: '1 call at a time (WhatsApp Web rule)', salvarRotulo: 'Save label', rotuloSalvo: 'Label saved', abrirDiscador: 'Open dialer', rodarTeste: 'Run self-test', estado: 'State', tentativas: 'Automatic restarts',
+    desparearTit: 'Unpair “{n}”?', desparearTxt: 'The WhatsApp session will be wiped and the instance goes back to the QR. The token stays the same.', despareada: '{n} unpaired', desparearDesc: 'Wipes the WhatsApp session; the instance goes back to the QR.',
+    excluirTit: 'Delete “{n}”', excluirTxt: 'Removes the instance from the registry and stops its process. Type the instance name to confirm.', excluirCheck: 'Also wipe the paired session (Chrome profile)', excluida: '{n} deleted', excluirDesc: 'Removes the instance from the registry. Irreversible.', digiteNome: 'type {n} to confirm',
+    reiniciando: 'Restarting {n}…', ligada: '{n} enabled', desligadaMsg: '{n} disabled', reiniciarDesc: 'Stops and starts Chrome. The paired session is kept.', desligarDesc: 'Stops the process and keeps the instance disabled until enabled again.',
+    novaTit: 'New instance', nomeLbl: 'Name', nomeAjuda: 'Goes in the URL and the directory: a-z, 0-9, - and _ (up to 32).', nomeInvalido: 'Use only a-z, 0-9, - and _, starting with a letter or digit.', rotuloOpc: 'Label (optional)', rotuloPh: 'Sales team', webhookOpc: 'Webhook (optional)', webhookInvalido: 'The URL must start with http:// or https://', novaDica: 'After creating, pair by QR. The instance takes one call at a time.', cancelar: 'Cancel', criar: 'Create instance', criando: 'Creating…', criada: 'Instance {n} created — pair it by QR',
+    parearTit: 'Pair “{n}”', p1: 'Open WhatsApp on the phone.', p2: 'Tap <b>Linked devices › Link a device</b>.', p3: 'Point the camera at the code. It rotates every ~20 s.', procurandoQr: 'Looking for the QR…', pareado: 'Paired', podeFechar: 'You can close this window.', chromeSubindo: "The instance's Chrome is still starting…", codigoTem: 'Code generated {s} s ago', semQr: 'No QR right now — the instance may be reloading. Retrying…',
+    whTxt: 'Every event becomes a <code>POST</code> to your URL, with up to 3 attempts. Empty list = all events. Call media does not go through the webhook (WebSocket only).', url: 'URL', eventos: 'Events', salvarWebhook: 'Save webhook', webhookSalvo: 'Webhook saved', ultimasEntregas: 'Latest deliveries', nenhumaAinda: 'No deliveries yet.', tentativa: 'att.',
+    tokenTxt: 'The instance token grants access to “{n}” only. Keep it in your backend; never in the end user\'s browser.', token: 'Instance token', mostrar: 'Show', ocultar: 'Hide', girarToken: 'Generate another token', girarTit: 'Generate another token?', girarTxt: 'The current token stops working immediately and the instance restarts.', tokenNovo: 'New token generated', girarDesc: 'Invalidates the current token and restarts the instance.',
+    exLigar: 'Dial (voice)', exEstado: 'Instance state', exWs: 'Events + media (WebSocket)', exDiscador: 'Reference dialer', docsLink: 'Full API documentation', semAcesso: '(no access)',
+    ultimasLinhas: '{n} lines', vazio: 'No lines yet.', confirmar: 'Confirm', autoAtualizar: 'Live', filtrarLogs: 'Filter lines…', copiarLogs: 'Copy',
+    diagTit: 'Diagnostics', diagSub: 'The machine, each instance\'s footprint and the self-tests — before blaming the network.', diagMaquina: 'Machine', diagPeso: 'Footprint per instance', diagPesoTxt: 'Each Chrome weighs ~400–900 MB. Above 1.5 GB per instance, or with free memory under 15%, do not create more instances on this machine.', diagTestes: 'Self-tests', diagTestesTxt: 'Checks process, API, latency, session, media hooks, bridge, native adapter and Chrome memory. Makes no call.',
+    tCpu: 'CPUs · 1-min load', tMem: 'Free memory', tDisco: 'Free disk (data)', versao: 'Version', node: 'Node', uptime: 'Up for', gerenteMem: 'Manager (RAM)', inst: 'Instance', chromeProc: 'Chrome processes', ram: 'RAM', cpu: 'CPU', testar: 'Test', testando: 'Testing…', passou: 'Passed', falhou: 'Failed', semTeste: 'Click Test.',
+    configTit: 'Settings', configSub: 'Appearance, access and where the service keeps things.', aparencia: 'Appearance', idioma: 'Language', tema: 'Theme', sistema: 'System', escuro: 'Dark', claro: 'Light', aparenciaTxt: 'The choice applies to the panel, the documentation, the dialer and the pairing page in this browser.',
+    acesso: 'Access', cfgChaveK: 'Global key', cfgChaveTxt: 'Administers every instance. Comes from <code>ZAPCALL_API_KEY</code> ({o}). To change it, set the variable (or edit <code>DATA_DIR/manager.json</code>) and restart the manager. Header only, never in a URL.', origemEnv: 'environment variable', origemArquivo: 'generated and stored in a file', cfgTokenK: 'Instance token', cfgTokenTxt: 'One per instance, grants access to it only. Rotate it in the instance\'s <b>API</b> tab or via <code>POST /instance/token/:name</code>.', cfgOrigensK: 'Allowed origins', cfgOrigensTxt: 'any origin (set <code>ALLOWED_ORIGINS</code> to restrict CORS and WebSocket)', sairK: 'Session in this browser', sairTxt: 'Forget the key stored here',
+    servico: 'Service', cfgPortaK: 'Manager port', cfgPortasK: 'Instance ports', cfgPortasTxt: 'on loopback, from {p} upwards', cfgDadosK: 'Data', cfgDadosTxt: 'registry, key and paired sessions — the volume to preserve', cfgChromeK: 'Chrome', autodetectado: 'autodetected', cfgInstK: 'Registered instances', cfgDdiK: 'Default country code', cfgDdiTxt: 'none (national numbers are rejected; set <code>DEFAULT_COUNTRY_CODE</code>)', cfgDocsK: 'Documentation', cfgDocsTxt: 'full manual (PT/EN/ES), inside this installation',
+  },
+  es: {
+    titulo: 'ZapCall — panel', entrar: 'Entrar al panel', entrarTxt: 'Pega la clave global. Se queda solo en este navegador y siempre viaja en un header — nunca en la URL.',
+    chaveGlobal: 'Clave global', botaoEntrar: 'Entrar', soIntegrar: '¿Solo quieres integrar? La <a href="/docs">documentación</a> no necesita clave.',
+    sair: 'Salir', gerenteOk: 'gestor ok', gerenteFora: 'gestor caído', chaveInvalida: 'clave inválida', chaveErrada: 'Clave global incorrecta. Revisa DATA_DIR/manager.json o la variable ZAPCALL_API_KEY.', semServico: 'No pude hablar con el gestor. ¿Está en marcha?', verificando: 'verificando…', bloqueado: 'Demasiados intentos inválidos desde esta dirección. Espera un minuto.',
+    sessaoExpirou: 'La clave guardada ya no vale. Entra de nuevo.', servicoFora: 'Sin respuesta del gestor. Reintentando…', servicoVoltou: 'El gestor volvió.',
+    h1: 'Instancias', h1sub: 'Cada instancia es un número de WhatsApp vinculado, con una llamada a la vez.', nova: 'Nueva instancia', atualizar: 'Actualizar',
+    tTotal: 'Instancias', tPareadas: 'Vinculadas', tUso: 'En llamada', tQr: 'Esperando QR', tParadas: 'Detenidas', buscar: 'Filtrar por nombre, etiqueta o número…',
+    fTodas: 'Todos los estados', fUso: 'En llamada', fLivres: 'Libres', fQr: 'Esperando QR', fParadas: 'Detenidas o desactivadas', vTabela: 'Tabla', vCartoes: 'Tarjetas', mostrando: '{n} de {t}',
+    cInstancia: 'Instancia', cEstado: 'Estado', cNumero: 'Número', cChamada: 'Llamada', cProcesso: 'Proceso', cWebhook: 'Webhook', cAcoes: 'Acciones',
+    desligada: 'Desactivada', parada: 'Detenida', subindo: 'Iniciando', aguardandoQr: 'Esperando QR', emUso: 'En llamada', livre: 'Libre',
+    semRotulo: 'sin etiqueta', recebendoDe: 'Recibiendo de', ligandoPara: 'Llamando a', contatoLid: 'contacto (LID)', naoIdentificado: 'número no identificado', video: 'video', voz: 'voz',
+    numero: 'Número', porta: 'puerto', webhook: 'Webhook', ativo: 'activo', nao: 'no', noArHa: 'activa hace', min: 'min', h: 'h', d: 'd',
+    parear: 'Vincular', discador: 'Marcador', codigo: 'API', reiniciar: 'Reiniciar', ligar: 'Activar', desligar: 'Desactivar', desparear: 'Desvincular', excluir: 'Eliminar', detalhes: 'Detalles',
+    vazioTit: 'Todavía no hay instancias', vazioTxt: 'Crea la primera y vincúlala por QR. Cada instancia es un número de WhatsApp.', filtroVazioTit: 'Nada por aquí', filtroVazioTxt: 'Ninguna instancia coincide con el filtro.',
+    abaGeral: 'Resumen', abaWebhook: 'Webhook', abaCodigo: 'API', abaLogs: 'Logs', abaPerigo: 'Zona de peligro', fechar: 'Cerrar', semSessao: 'sin sesión vinculada',
+    rotulo: 'Etiqueta', rotuloEx: 'ej.: Soporte', processo: 'Proceso', parado: 'detenido', pid: 'pid', criadaEm: 'Creada el', limite: 'Límite', limiteTxt: '1 llamada a la vez (regla de WhatsApp Web)', salvarRotulo: 'Guardar etiqueta', rotuloSalvo: 'Etiqueta guardada', abrirDiscador: 'Abrir marcador', rodarTeste: 'Ejecutar autotest', estado: 'Estado', tentativas: 'Reinicios automáticos',
+    desparearTit: '¿Desvincular “{n}”?', desparearTxt: 'La sesión de WhatsApp se borrará y la instancia vuelve al QR. El token sigue igual.', despareada: '{n} desvinculada', desparearDesc: 'Borra la sesión de WhatsApp; la instancia vuelve al QR.',
+    excluirTit: 'Eliminar “{n}”', excluirTxt: 'Quita la instancia del registro y detiene su proceso. Escribe el nombre de la instancia para confirmar.', excluirCheck: 'Borrar también la sesión vinculada (perfil de Chrome)', excluida: '{n} eliminada', excluirDesc: 'Quita la instancia del registro. Irreversible.', digiteNome: 'escribe {n} para confirmar',
+    reiniciando: 'Reiniciando {n}…', ligada: '{n} activada', desligadaMsg: '{n} desactivada', reiniciarDesc: 'Detiene y levanta Chrome. La sesión vinculada se mantiene.', desligarDesc: 'Detiene el proceso y deja la instancia desactivada hasta activarla de nuevo.',
+    novaTit: 'Nueva instancia', nomeLbl: 'Nombre', nomeAjuda: 'Va en la URL y en el directorio: a-z, 0-9, - y _ (hasta 32).', nomeInvalido: 'Usa solo a-z, 0-9, - y _, empezando por letra o número.', rotuloOpc: 'Etiqueta (opcional)', rotuloPh: 'Equipo comercial', webhookOpc: 'Webhook (opcional)', webhookInvalido: 'La URL debe empezar con http:// o https://', novaDica: 'Después de crearla, vincúlala por QR. La instancia acepta una llamada a la vez.', cancelar: 'Cancelar', criar: 'Crear instancia', criando: 'Creando…', criada: 'Instancia {n} creada — vincúlala por QR',
+    parearTit: 'Vincular “{n}”', p1: 'Abre WhatsApp en el teléfono.', p2: 'Toca <b>Dispositivos vinculados › Vincular un dispositivo</b>.', p3: 'Apunta la cámara al código. Cambia cada ~20 s.', procurandoQr: 'Buscando el QR…', pareado: 'Vinculada', podeFechar: 'Puedes cerrar esta ventana.', chromeSubindo: 'El Chrome de la instancia todavía está iniciando…', codigoTem: 'Código generado hace {s} s', semQr: 'Sin QR ahora mismo — la instancia puede estar recargando. Reintentando…',
+    whTxt: 'Cada evento se convierte en un <code>POST</code> a tu URL, con hasta 3 intentos. Lista vacía = todos los eventos. El audio/video de la llamada no va por webhook (solo por WebSocket).', url: 'URL', eventos: 'Eventos', salvarWebhook: 'Guardar webhook', webhookSalvo: 'Webhook guardado', ultimasEntregas: 'Últimas entregas', nenhumaAinda: 'Todavía no hay entregas.', tentativa: 'int.',
+    tokenTxt: 'El token de la instancia da acceso solo a “{n}”. Guárdalo en tu backend; nunca en el navegador del usuario final.', token: 'Token de la instancia', mostrar: 'Mostrar', ocultar: 'Ocultar', girarToken: 'Generar otro token', girarTit: '¿Generar otro token?', girarTxt: 'El token actual deja de valer al instante y la instancia se reinicia.', tokenNovo: 'Nuevo token generado', girarDesc: 'Invalida el token actual y reinicia la instancia.',
+    exLigar: 'Llamar (voz)', exEstado: 'Estado de la instancia', exWs: 'Eventos + media (WebSocket)', exDiscador: 'Marcador de referencia', docsLink: 'Documentación completa de la API', semAcesso: '(sin acceso)',
+    ultimasLinhas: '{n} líneas', vazio: 'Todavía no hay líneas.', confirmar: 'Confirmar', autoAtualizar: 'En vivo', filtrarLogs: 'Filtrar líneas…', copiarLogs: 'Copiar',
+    diagTit: 'Diagnóstico', diagSub: 'La máquina, el peso de cada instancia y los autotests — antes de culpar a la red.', diagMaquina: 'Máquina', diagPeso: 'Peso por instancia', diagPesoTxt: 'Cada Chrome pesa ~400–900 MB. Por encima de 1,5 GB por instancia, o con memoria libre por debajo del 15%, no crees más instancias en esta máquina.', diagTestes: 'Autotests', diagTestesTxt: 'Verifica proceso, API, latencia, sesión, ganchos de media, puente, adaptador nativo y memoria de Chrome. No hace llamadas.',
+    tCpu: 'CPUs · carga 1 min', tMem: 'Memoria libre', tDisco: 'Disco libre (datos)', versao: 'Versión', node: 'Node', uptime: 'Activo hace', gerenteMem: 'Gestor (RAM)', inst: 'Instancia', chromeProc: 'Procesos Chrome', ram: 'RAM', cpu: 'CPU', testar: 'Probar', testando: 'Probando…', passou: 'Pasó', falhou: 'Falló', semTeste: 'Pulsa Probar.',
+    configTit: 'Configuración', configSub: 'Apariencia, acceso y dónde guarda las cosas el servicio.', aparencia: 'Apariencia', idioma: 'Idioma', tema: 'Tema', sistema: 'Sistema', escuro: 'Oscuro', claro: 'Claro', aparenciaTxt: 'La elección vale para el panel, la documentación, el marcador y la página de vinculación en este navegador.',
+    acesso: 'Acceso', cfgChaveK: 'Clave global', cfgChaveTxt: 'Administra todas las instancias. Viene de <code>ZAPCALL_API_KEY</code> ({o}). Para cambiarla, define la variable (o edita <code>DATA_DIR/manager.json</code>) y reinicia el gestor. Solo en header, nunca en la URL.', origemEnv: 'variable de entorno', origemArquivo: 'generada y guardada en un archivo', cfgTokenK: 'Token de instancia', cfgTokenTxt: 'Uno por instancia, da acceso solo a ella. Rótalo en la pestaña <b>API</b> de la instancia o con <code>POST /instance/token/:nombre</code>.', cfgOrigensK: 'Orígenes permitidos', cfgOrigensTxt: 'cualquier origen (define <code>ALLOWED_ORIGINS</code> para restringir CORS y WebSocket)', sairK: 'Sesión en este navegador', sairTxt: 'Olvidar la clave guardada aquí',
+    servico: 'Servicio', cfgPortaK: 'Puerto del gestor', cfgPortasK: 'Puertos de las instancias', cfgPortasTxt: 'en loopback, desde {p}', cfgDadosK: 'Datos', cfgDadosTxt: 'registro, clave y sesiones vinculadas — el volumen a preservar', cfgChromeK: 'Chrome', autodetectado: 'autodetectado', cfgInstK: 'Instancias registradas', cfgDdiK: 'Código de país por defecto', cfgDdiTxt: 'ninguno (los números nacionales se rechazan; define <code>DEFAULT_COUNTRY_CODE</code>)', cfgDocsK: 'Documentación', cfgDocsTxt: 'manual completo (PT/EN/ES), dentro de esta instalación',
+  },
+};
+const t = (k, v) => ZC.t(I18N, k, v);
+
+// -------------------------------------------------------------- estado
+let chave = '';
+try { chave = localStorage.getItem('zc.manager.apikey') || ''; } catch {}
+const cab = () => ({ 'content-type': 'application/json', apikey: chave });
+const toast = (msg, tipo) => ZC.toast(msg, tipo === true ? 'erro' : (tipo || 'ok'));
+let estadoServico = null, avisoFora = null, avisoSessao = null;
+
+class ErroApi extends Error { constructor(status, corpo) { super(corpo.message || corpo.error || ('HTTP ' + status)); this.status = status; this.corpo = corpo; } }
+async function api(rota, metodo = 'GET', corpo) {
+  let r;
+  try { r = await fetch(rota, { method: metodo, headers: cab(), body: corpo === undefined ? undefined : JSON.stringify(corpo) }); }
+  catch (e) { servicoCaiu(); throw new Error(t('semServico')); }
+  const j = await r.json().catch(() => ({}));
+  if (r.status === 401) { sessaoExpirou(); throw new ErroApi(401, { message: t('chaveInvalida') }); }
+  if (r.status === 429) { throw new ErroApi(429, { message: t('bloqueado') }); }
+  if (!r.ok) throw new ErroApi(r.status, j);
+  servicoVoltou();
+  return j;
+}
+function servicoCaiu() {
+  if (estadoServico === false) return;
+  estadoServico = false; atualizarPilula();
+  if (!avisoFora) { avisoFora = ZC.flash(t('servicoFora'), 'erro'); $('flashes').prepend(avisoFora); }
+}
+function servicoVoltou() {
+  const antes = estadoServico; estadoServico = true; atualizarPilula();
+  if (avisoFora) { avisoFora.remove(); avisoFora = null; if (antes === false) toast(t('servicoVoltou'), 'ok'); }
+}
+function sessaoExpirou() {
+  // Chave guardada que deixou de valer: para de bater na API (senao vira 429) e volta ao login.
+  chave = ''; try { localStorage.removeItem('zc.manager.apikey'); } catch {}
+  entrar(false); $('chaveErro').textContent = t('sessaoExpirou');
+}
+
+// ----------------------------------------------------------- barra fixa
+let tela = 'instancias', barra = null;
+const LINKS = () => [
+  { href: '#instancias', rotulo: { pt: 'Instâncias', en: 'Instances', es: 'Instancias' }, icone: 'servidor', ativo: tela === 'instancias', contagem: instancias.length || null },
+  { href: '#diagnostico', rotulo: { pt: 'Diagnóstico', en: 'Diagnostics', es: 'Diagnóstico' }, icone: 'pulso', ativo: tela === 'diagnostico' },
+  { href: '#config', rotulo: { pt: 'Configurações', en: 'Settings', es: 'Configuración' }, icone: 'engrenagem', ativo: tela === 'config' },
+  { href: '/docs', rotulo: { pt: 'Documentação', en: 'Documentation', es: 'Documentación' }, icone: 'livro' },
+];
+function montarBarra() {
+  if (barra) { barra.el.remove(); barra.faixa.remove(); document.body.classList.remove('zc-com-abas'); }
+  barra = ZC.nav({
+    sub: { pt: 'Painel', en: 'Panel', es: 'Panel' },
+    links: chave ? LINKS() : [{ href: '/docs', rotulo: { pt: 'Documentação', en: 'Documentation', es: 'Documentación' }, icone: 'livro' }],
+    extra: () => chave ? `<span class="zc-label neutro" id="pServico">…</span><button class="zc-btn pequeno" id="bSair">${t('sair')}</button>` : '',
+  });
+  const s = $('bSair'); if (s) s.onclick = () => { chave = ''; try { localStorage.removeItem('zc.manager.apikey'); } catch {} entrar(false); };
+  atualizarPilula();
+}
+function atualizarPilula() { const p = $('pServico'); if (!p || estadoServico === null) return; p.textContent = estadoServico ? t('gerenteOk') : t('gerenteFora'); p.className = 'zc-label ' + (estadoServico ? 'ok' : 'ruim'); }
+function irPara(h) {
+  tela = { '#diagnostico': 'diagnostico', '#config': 'config' }[h] || 'instancias';
+  $('telaInstancias').classList.toggle('ativa', tela === 'instancias');
+  $('telaDiag').classList.toggle('ativa', tela === 'diagnostico');
+  $('telaConfig').classList.toggle('ativa', tela === 'config');
+  montarBarra();
+  if (tela === 'diagnostico') diagnostico();
+  if (tela === 'config') configuracoes();
+  window.scrollTo(0, 0);
+}
+window.addEventListener('hashchange', () => irPara(location.hash));
+function aplicarTextos() {
+  document.title = t('titulo');
+  document.querySelectorAll('[data-i18n]').forEach(e => { e.innerHTML = t(e.dataset.i18n); });
+  document.querySelectorAll('[data-i18n-ph]').forEach(e => { e.placeholder = t(e.dataset.i18nPh); });
+  $('loginLogo').innerHTML = ZC.logo(36) + ' ZapCall';
+  $('icMais').innerHTML = I.mais; $('icBusca').innerHTML = I.busca; $('icAtualizar').innerHTML = I.reiniciar; $('gFechar').innerHTML = I.x;
+  const f = $('filtro'); const atual = f.value;
+  f.innerHTML = [['todas', 'fTodas'], ['uso', 'fUso'], ['livres', 'fLivres'], ['qr', 'fQr'], ['paradas', 'fParadas']].map(([v, k]) => `<option value="${v}">${t(k)}</option>`).join('');
+  f.value = atual || 'todas';
+  [...$('vista').children].forEach(b => b.classList.toggle('ativo', b.dataset.v === vista));
+}
+ZC.onChange(() => { aplicarTextos(); montarBarra(); desenhar(); if (gavetaAberta) desenharGaveta(); if (tela === 'config') configuracoes(); if (tela === 'diagnostico') desenharDiag(); });
+
+// ---------------------------------------------------------------- login
+function entrar(ok) {
+  $('telaLogin').classList.toggle('oculto', ok);
+  $('app').classList.toggle('oculto', !ok);
+  montarBarra();
+  if (ok) { irPara(location.hash); atualizar(); } else { fecharGaveta(); fecharModal(); }
+}
+$('bEntrar').onclick = async () => {
+  const valor = $('chave').value.trim(); if (!valor) return;
+  const inp = $('chave'), erro = $('chaveErro'), btn = $('bEntrar');
+  inp.classList.remove('invalida'); erro.textContent = ''; btn.disabled = true; btn.textContent = t('verificando');
+  try {
+    // Confere ANTES de entrar: chave errada nao pode abrir um painel vazio.
+    const r = await fetch('/manager/config', { headers: { apikey: valor } });
+    if (r.status === 401) { erro.textContent = t('chaveErrada'); inp.classList.add('invalida'); inp.select(); return; }
+    if (r.status === 429) { erro.textContent = t('bloqueado'); return; }
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    chave = valor; try { localStorage.setItem('zc.manager.apikey', chave); } catch {}
+    entrar(true);
+  } catch { erro.textContent = t('semServico'); }
+  finally { btn.disabled = false; btn.textContent = t('botaoEntrar'); }
+};
+$('chave').oninput = () => { $('chave').classList.remove('invalida'); $('chaveErro').textContent = ''; };
+$('chave').onkeydown = (e) => { if (e.key === 'Enter') $('bEntrar').click(); };
+
+// ---------------------------------------------------------------- lista
+let instancias = [], carregou = false, filtro = 'todas', termo = '';
+let vista = 'tabela'; try { vista = localStorage.getItem('zc.manager.vista') || 'tabela'; } catch {}
+const duracao = (desde) => { const s = Math.max(0, Math.round((Date.now() - desde) / 1000)); return String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0'); };
+const corDe = (nome) => { let h = 0; for (const c of nome) h = (h * 31 + c.charCodeAt(0)) >>> 0; return 'hsl(' + (h % 360) + ' 45% 45%)'; };
+const iniciais = (i) => ((i.connected && i.pushName) || i.name).split(/\s+/).slice(0, 2).map(p => p[0] || '').join('').toUpperCase();
+const telefone = (p) => p ? '+' + String(p).replace(/^(\d{2})(\d{2})(\d{4,5})(\d{4})$/, '$1 $2 $3-$4') : '';
+function estadoDe(i) {
+  if (!i.enabled) return { classe: 'neutro', txt: t('desligada'), chave: 'desligada' };
+  if (!i.running) return { classe: 'ruim', txt: t('parada'), chave: 'parada' };
+  if (!i.healthy) return { classe: 'aviso', txt: t('subindo'), chave: 'subindo' };
+  if (!i.connected) return { classe: 'aviso', txt: t('aguardandoQr'), chave: 'qr' };
+  if (i.busy) return { classe: 'uso', txt: t('emUso'), chave: 'uso' };
+  return { classe: 'ok', txt: t('livre'), chave: 'livre' };
+}
+const quemNaLinha = (c) => c ? (c.phone ? telefone(c.phone) : (c.lid ? t('contatoLid') : t('naoIdentificado'))) : '';
+const tempoNoAr = (s) => s == null ? '—' : s < 3600 ? Math.round(s / 60) + ' ' + t('min') : s < 86400 ? (s / 3600).toFixed(1) + ' ' + t('h') : (s / 86400).toFixed(1) + ' ' + t('d');
+const chamadaHtml = (i) => i.busy && i.call ? `<span class="chamadaMini"><span class="eq"><i></i><i></i><i></i><i></i></span><span>${i.call.direction === 'inbound' ? t('recebendoDe') : t('ligandoPara')} <b>${esc(quemNaLinha(i.call))}</b> <span class="fraco">· ${i.call.isVideo ? t('video') : t('voz')}</span></span><b class="mono" style="color:var(--live)" data-desde="${i.call.acceptedAt || i.call.startedAt}">${duracao(i.call.acceptedAt || i.call.startedAt)}</b></span>` : '<span class="fraco">—</span>';
+
+function filtrar() {
+  const q = termo.toLowerCase();
+  return instancias.filter(i => {
+    const e = estadoDe(i).chave;
+    if (filtro === 'uso' && e !== 'uso') return false;
+    if (filtro === 'livres' && e !== 'livre') return false;
+    if (filtro === 'qr' && e !== 'qr') return false;
+    if (filtro === 'paradas' && !['parada', 'desligada'].includes(e)) return false;
+    return !q || [i.name, i.channel, i.phone, i.pushName].some(v => v && String(v).toLowerCase().includes(q));
+  });
+}
+function botoesRapidos(i, pequeno = true) {
+  const cls = 'zc-btn' + (pequeno ? ' pequeno' : '');
+  const b = (txt, icone, fn, extra = '') => { const el = document.createElement('button'); el.className = cls + ' ' + extra; el.innerHTML = I[icone] + '<span>' + txt + '</span>'; el.onclick = (ev) => { ev.stopPropagation(); fn(); }; return el; };
+  const lista = [];
+  if (i.running && i.healthy && !i.connected) lista.push(b(t('parear'), 'qr', () => parear(i), 'primario'));
+  if (i.connected) lista.push(b(t('discador'), 'telefone', () => abrirDiscador(i)));
+  lista.push(b(t('codigo'), 'chave', () => abrirGaveta(i, 'codigo')));
+  lista.push(b(i.enabled ? t('reiniciar') : t('ligar'), i.enabled ? 'reiniciar' : 'play', () => i.enabled ? acao(i, 'restart', t('reiniciando', { n: i.name })) : ligar(i, true)));
+  return lista;
+}
+function linhaTabela(i) {
+  const e = estadoDe(i);
+  const tr = document.createElement('tr');
+  tr.className = i.busy ? 'emUso' : '';
+  tr.innerHTML = `
+    <td><div class="ident"><div class="avatar" style="background:${corDe(i.name)}">${esc(iniciais(i))}</div><div><div class="nome">${esc(i.name)}</div><div class="sub">${esc(i.channel || t('semRotulo'))}${i.connected && i.pushName ? ' · ' + esc(i.pushName) : ''}</div></div></div></td>
+    <td><span class="zc-label ${e.classe}">${e.txt}</span></td>
+    <td class="mono">${i.connected ? esc(telefone(i.phone)) : '<span class="fraco">—</span>'}</td>
+    <td>${chamadaHtml(i)}</td>
+    <td class="fraco">${i.running ? `<span class="mono">pid ${i.pid}</span> · ${t('porta')} <span class="mono">${i.port}</span> · ${tempoNoAr(i.uptime)}` : t('parado')}</td>
+    <td>${i.webhook && i.webhook.enabled ? '<span class="zc-label ok">' + t('ativo') + '</span>' : '<span class="fraco">—</span>'}</td>
+    <td><div class="acoes"></div></td>`;
+  const acoes = tr.querySelector('.acoes');
+  for (const b of botoesRapidos(i)) acoes.appendChild(b);
+  tr.onclick = () => abrirGaveta(i, 'geral');
+  return tr;
+}
+function cartao(i) {
+  const e = estadoDe(i);
+  const el = document.createElement('div');
+  el.className = 'card' + (i.busy ? ' emUso' : '');
+  el.innerHTML = `
+    <div class="topo"><div class="avatar" style="background:${corDe(i.name)}">${esc(iniciais(i))}</div>
+      <div><div style="font-weight:600">${esc(i.name)}</div><div class="fraco" style="font-size:12px">${esc(i.channel || t('semRotulo'))}${i.connected && i.pushName ? ' · ' + esc(i.pushName) : ''}</div></div>
+      <span class="zc-label ${e.classe}">${e.txt}</span></div>
+    ${i.busy && i.call ? `<div class="emUsoBox"><span class="eq"><i></i><i></i><i></i><i></i></span><div>${i.call.direction === 'inbound' ? t('recebendoDe') : t('ligandoPara')} <b>${esc(quemNaLinha(i.call))}</b><div class="fraco" style="font-size:12px">${i.call.isVideo ? t('video') : t('voz')} · ${esc(i.call.status)}</div></div><span class="tempo" data-desde="${i.call.acceptedAt || i.call.startedAt}">${duracao(i.call.acceptedAt || i.call.startedAt)}</span></div>` : ''}
+    <div class="info">
+      <div>${t('numero')} <b>${i.connected ? esc(telefone(i.phone)) : '—'}</b></div><div>${t('porta')} <b>${i.port}</b></div>
+      <div>${t('webhook')} <b>${i.webhook && i.webhook.enabled ? t('ativo') : t('nao')}</b></div><div>${t('noArHa')} <b>${tempoNoAr(i.uptime)}</b></div>
+    </div>
+    <div class="rodape"></div>`;
+  const rodape = el.querySelector('.rodape');
+  for (const b of botoesRapidos(i)) rodape.appendChild(b);
+  el.onclick = () => abrirGaveta(i, 'geral');
+  return el;
+}
+function desenhar() {
+  if (!$('corpoTabela')) return;
+  $('cabTabela').innerHTML = `<tr><th>${t('cInstancia')}</th><th>${t('cEstado')}</th><th>${t('cNumero')}</th><th>${t('cChamada')}</th><th>${t('cProcesso')}</th><th>${t('cWebhook')}</th><th style="text-align:right">${t('cAcoes')}</th></tr>`;
+  const lista = filtrar();
+  $('contador').textContent = carregou ? t('mostrando', { n: lista.length, t: instancias.length }) : '';
+  const tb = $('corpoTabela'), g = $('grade');
+  // Em tela estreita a tabela nao cabe: cartoes, seja qual for a escolha.
+  const v = window.innerWidth < 760 ? 'cartoes' : vista;
+  $('caixaTabela').classList.toggle('oculto', v !== 'tabela'); g.classList.toggle('oculto', v !== 'cartoes');
+  tb.innerHTML = ''; g.innerHTML = '';
+  if (!carregou) { tb.innerHTML = Array.from({ length: 3 }, () => '<tr class="skelLinha">' + '<td><span class="zc-skel">&nbsp;</span></td>'.repeat(7) + '</tr>').join(''); return; }
+  const vazio = !instancias.length ? `<div class="zc-blankslate">${I.servidor}<b>${t('vazioTit')}</b><span>${t('vazioTxt')}</span><button class="zc-btn primario" onclick="document.getElementById('bNova').click()">${I.mais}<span>${t('nova')}</span></button></div>`
+    : !lista.length ? `<div class="zc-blankslate">${I.filtro}<b>${t('filtroVazioTit')}</b><span>${t('filtroVazioTxt')}</span></div>` : '';
+  if (vazio) { if (v === 'tabela') tb.innerHTML = '<tr><td colspan="7" style="padding:0;border:0">' + vazio + '</td></tr>'; else g.innerHTML = vazio; return; }
+  for (const i of lista) (v === 'tabela' ? tb.appendChild(linhaTabela(i)) : g.appendChild(cartao(i)));
+}
+async function atualizar() {
+  if (!chave) return;
+  $('icAtualizar').firstElementChild?.classList.add('girando');
+  try { instancias = (await api('/manager/instances')).instances; carregou = true; }
+  catch { return; }
+  finally { $('icAtualizar').firstElementChild?.classList.remove('girando'); }
+  $('tTotal').textContent = instancias.length;
+  $('tPareadas').textContent = instancias.filter(i => i.connected).length;
+  $('tUso').textContent = instancias.filter(i => i.busy).length;
+  $('tQr').textContent = instancias.filter(i => i.running && i.healthy && !i.connected).length;
+  $('tParadas').textContent = instancias.filter(i => !i.running).length;
+  document.title = (instancias.some(i => i.busy) ? '● ' : '') + t('titulo');
+  if (barra) { barra.atualizar(LINKS()); const sb = $('bSair'); if (sb) sb.onclick = () => { chave = ''; try { localStorage.removeItem('zc.manager.apikey'); } catch {} entrar(false); }; atualizarPilula(); }
+  desenhar();
+  if (gavetaAberta) { const i = instancias.find(x => x.name === gavetaAberta.name); if (i) { const mudou = JSON.stringify(estadoDe(i)) !== JSON.stringify(estadoDe(gavetaAberta)) || (i.busy !== gavetaAberta.busy); gavetaAberta = i; if (abaAtual === 'geral' && mudou) desenharGaveta(); } }
+}
+setInterval(atualizar, 2000);
+setInterval(() => { for (const el of document.querySelectorAll('[data-desde]')) el.textContent = duracao(Number(el.dataset.desde)); }, 1000);
+$('busca').oninput = (e) => { termo = e.target.value; desenhar(); };
+$('filtro').onchange = (e) => { filtro = e.target.value; desenhar(); };
+$('vista').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; vista = b.dataset.v; try { localStorage.setItem('zc.manager.vista', vista); } catch {} [...$('vista').children].forEach(x => x.classList.toggle('ativo', x === b)); desenhar(); };
+$('bAtualizar').onclick = atualizar;
+let larguraAntes = window.innerWidth;
+window.addEventListener('resize', () => { const estreita = window.innerWidth < 760, era = larguraAntes < 760; larguraAntes = window.innerWidth; if (estreita !== era) desenhar(); });
+document.addEventListener('keydown', (e) => { if (e.key === '/' && !/input|textarea/i.test(document.activeElement.tagName) && chave) { e.preventDefault(); $('busca').focus(); } });
+
+// ---------------------------------------------------------------- acoes
+const acao = async (i, a, msg) => { try { await api('/manager/instances/' + i.name + '/' + a, 'POST', {}); toast(msg || 'ok'); atualizar(); } catch (e) { toast(e.message, true); } };
+const ligar = async (i, enabled) => { try { await api('/manager/instances/' + i.name, 'PATCH', { enabled }); toast(enabled ? t('ligada', { n: i.name }) : t('desligadaMsg', { n: i.name })); atualizar(); } catch (e) { toast(e.message, true); } };
+function modal(titulo, corpo, rodape) {
+  $('modalConteudo').innerHTML = `<h3>${titulo}<button class="zc-btn icone fantasma fechar" onclick="fecharModal()" aria-label="${t('fechar')}">${I.x}</button></h3><div class="mc">${corpo}</div>${rodape ? '<div class="rodape">' + rodape + '</div>' : ''}`;
+  $('modal').classList.add('aberto');
+  const foco = $('modalConteudo').querySelector('input,button.primario,button'); if (foco) foco.focus();
+}
+function fecharModal() { $('modal').classList.remove('aberto'); pararQr(); }
+$('modal').onclick = (e) => { if (e.target === $('modal')) fecharModal(); };
+
+$('bNova').onclick = () => {
+  modal(t('novaTit'), `
+    <div class="campo"><label>${t('nomeLbl')}</label><input class="zc-input" id="nNome" placeholder="sales" autocomplete="off" spellcheck="false" maxlength="32"><div class="ajuda">${t('nomeAjuda')}</div><div class="erro" id="nNomeErro"></div></div>
+    <div class="campo"><label>${t('rotuloOpc')}</label><input class="zc-input" id="nCanal" placeholder="${t('rotuloPh')}" maxlength="64"></div>
+    <div class="campo"><label>${t('webhookOpc')}</label><input class="zc-input" id="nHook" placeholder="https://example.com/zapcall" spellcheck="false"><div class="erro" id="nHookErro"></div></div>
+    <div class="zc-flash">${I.info}<div>${t('novaDica')}</div></div>`,
+    `<button class="zc-btn" onclick="fecharModal()">${t('cancelar')}</button><button class="zc-btn primario" id="nCriar">${t('criar')}</button>`);
+  const valida = () => {
+    const name = $('nNome').value.trim().toLowerCase(), hook = $('nHook').value.trim();
+    const okNome = /^[a-z0-9][a-z0-9_-]{0,31}$/.test(name), okHook = !hook || /^https?:\/\//i.test(hook);
+    $('nNomeErro').textContent = name && !okNome ? t('nomeInvalido') : ''; $('nNome').classList.toggle('invalida', !!name && !okNome);
+    $('nHookErro').textContent = hook && !okHook ? t('webhookInvalido') : ''; $('nHook').classList.toggle('invalida', !!hook && !okHook);
+    $('nCriar').disabled = !name || !okNome || !okHook;
+    return { name, hook, ok: name && okNome && okHook };
+  };
+  $('nNome').oninput = $('nHook').oninput = valida; valida();
+  $('nNome').onkeydown = (e) => { if (e.key === 'Enter') $('nCriar').click(); };
+  $('nCriar').onclick = async () => {
+    const { name, hook, ok } = valida(); if (!ok) return;
+    const channel = $('nCanal').value.trim();
+    $('nCriar').disabled = true; $('nCriar').textContent = t('criando');
+    try {
+      await api('/manager/instances', 'POST', { name, channel: channel || null });
+      if (hook) await api('/manager/instances/' + name, 'PATCH', { webhook: { url: hook } });
+      fecharModal(); toast(t('criada', { n: name })); await atualizar();
+      const i = instancias.find(x => x.name === name); if (i) setTimeout(() => parear(i), 1200);
+    } catch (e) { $('nNomeErro').textContent = e.message; $('nCriar').disabled = false; $('nCriar').textContent = t('criar'); }
+  };
+};
+
+let qrTimer = null;
+function pararQr() { if (qrTimer) { clearInterval(qrTimer); qrTimer = null; } }
+async function parear(i) {
+  modal(esc(t('parearTit', { n: i.name })), `
+    <div class="passos"><div><span class="n">1</span><span>${t('p1')}</span></div><div><span class="n">2</span><span>${t('p2')}</span></div><div><span class="n">3</span><span>${t('p3')}</span></div></div>
+    <div class="qr" id="qrAlvo"><span class="fraco">${t('procurandoQr')}</span></div>
+    <div id="qrIdade" class="fraco" style="font-size:12.5px;text-align:center;min-height:18px"></div>`,
+    `<button class="zc-btn" onclick="fecharModal()">${t('fechar')}</button>`);
+  let ref = null, desde = Date.now();
+  const tique = async () => {
+    try {
+      const s = await api('/manager/instances/' + i.name + '/status');
+      if (s.connected) { $('qrAlvo').innerHTML = `<div class="zc-label ok" style="font-size:14px;padding:6px 14px">${t('pareado')} · ${esc(telefone(s.phone))}</div>`; $('qrIdade').textContent = t('podeFechar'); pararQr(); atualizar(); return; }
+      if (!s.healthy) { $('qrIdade').textContent = t('chromeSubindo'); return; }
+      const r = await fetch('/manager/instances/' + i.name + '/qr', { headers: cab() });
+      const q = r.ok ? await r.json() : null;
+      if (q && q.png && q.ref !== ref) { ref = q.ref; desde = Date.now(); $('qrAlvo').innerHTML = '<img alt="QR" src="data:image/png;base64,' + q.png + '"><div class="barraTempo"><i style="width:100%"></i></div>'; }
+      else if (!q && !ref) $('qrIdade').textContent = t('semQr');
+      if (ref) { const s2 = Math.round((Date.now() - desde) / 1000); $('qrIdade').textContent = t('codigoTem', { s: s2 }); const b = $('qrAlvo').querySelector('.barraTempo i'); if (b) b.style.width = Math.max(0, 100 - s2 * 5) + '%'; }
+    } catch (e) { $('qrIdade').textContent = e.message; }
+  };
+  tique(); qrTimer = setInterval(tique, 2000);
+}
+function abrirDiscador(i) { api('/manager/instances/' + i.name).then(d => window.open('/instances/' + i.name + '/dialer?token=' + encodeURIComponent(d.instance.token), '_blank', 'noopener')).catch(e => toast(e.message, true)); }
+
+// ---------------------------------------------------------------- gaveta
+let gavetaAberta = null, abaAtual = 'geral', detalhe = null, logsTimer = null, logsAoVivo = true, logsFiltro = '', tokenVisivel = false;
+async function abrirGaveta(i, aba) {
+  gavetaAberta = i; abaAtual = aba || 'geral'; tokenVisivel = false;
+  $('gAvatar').textContent = iniciais(i); $('gAvatar').style.background = corDe(i.name);
+  $('gNome').textContent = i.name; $('gSub').textContent = (i.channel ? i.channel + ' · ' : '') + (i.connected ? telefone(i.phone) : t('semSessao'));
+  [...$('gAbas').children].forEach(b => b.classList.toggle('ativa', b.dataset.aba === abaAtual));
+  $('fundo').classList.add('aberto'); $('gaveta').classList.add('aberta'); $('gaveta').setAttribute('aria-hidden', 'false');
+  try { detalhe = (await api('/manager/instances/' + i.name)).instance; } catch (e) { toast(e.message, true); detalhe = null; }
+  desenharGaveta();
+}
+function fecharGaveta() { gavetaAberta = null; if (logsTimer) { clearInterval(logsTimer); logsTimer = null; } $('fundo').classList.remove('aberto'); $('gaveta').classList.remove('aberta'); $('gaveta').setAttribute('aria-hidden', 'true'); }
+$('gFechar').onclick = fecharGaveta; $('fundo').onclick = fecharGaveta;
+$('gAbas').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; abaAtual = b.dataset.aba; [...$('gAbas').children].forEach(x => x.classList.toggle('ativa', x === b)); desenharGaveta(); };
+const testeHtml = (r) => `<div class="teste">${r.itens.map(x => `<div><span class="${x.ok ? 'ok' : 'falha'}">${x.ok ? '✓' : '✕'}</span><span>${esc(x.nome)}</span><small>${esc(x.detalhe || '')}</small></div>`).join('')}<div style="background:transparent;border:0;padding:4px 10px"><b class="${r.ok ? 'ok' : 'falha'}">${r.ok ? t('passou') : t('falhou')}</b></div></div>`;
+const classeLog = (l) => /\b(erro|error|fatal|exception|falha|failed)\b/i.test(l) ? 'erro' : /\b(warn|aviso|reiniciando|recriando|caiu)\b/i.test(l) ? 'aviso' : /\b(pareado|ouvindo|de pe|ok)\b/i.test(l) ? 'okl' : '';
+
+async function desenharGaveta() {
+  const i = gavetaAberta; if (!i) return;
+  const c = $('gCorpo'); const e = estadoDe(i);
+  if (logsTimer && abaAtual !== 'logs') { clearInterval(logsTimer); logsTimer = null; }
+  if (abaAtual === 'geral') {
+    c.innerHTML = `
+      <div class="kv">
+        <span>${t('estado')}</span><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><span class="zc-label ${e.classe}">${e.txt}</span>${i.busy && i.call ? chamadaHtml(i) : ''}</div>
+        <span>${t('numero')}</span><b>${i.connected ? esc(telefone(i.phone)) + (i.pushName ? ' · ' + esc(i.pushName) : '') : '—'}</b>
+        <span>${t('rotulo')}</span><div style="display:flex;gap:6px"><input class="zc-input" id="gCanal" value="${esc(i.channel || '')}" placeholder="${t('rotuloEx')}" maxlength="64"><button class="zc-btn" id="gSalvar">${t('salvarRotulo')}</button></div>
+        <span>${t('processo')}</span><div>${i.running ? `<span class="mono">pid ${i.pid}</span> · ${t('porta')} <span class="mono">${i.port}</span> · ${t('noArHa')} ${tempoNoAr(i.uptime)}` : t('parado')}</div>
+        <span>${t('criadaEm')}</span><div>${ZC.formatarData(i.createdAt)}</div>
+        <span>${t('limite')}</span><div>${t('limiteTxt')}</div>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        ${i.running && i.healthy && !i.connected ? '<button class="zc-btn primario" id="gParear">' + I.qr + '<span>' + t('parear') + '</span></button>' : ''}
+        ${i.connected ? '<button class="zc-btn" id="gDiscador">' + I.telefone + '<span>' + t('abrirDiscador') + '</span></button>' : ''}
+        <button class="zc-btn" id="gTeste">${I.pulso}<span>${t('rodarTeste')}</span></button>
+        <button class="zc-btn" id="gReiniciar">${I.reiniciar}<span>${t('reiniciar')}</span></button>
+      </div>
+      <div id="gTesteSaida"></div>`;
+    $('gSalvar').onclick = async () => { try { await api('/manager/instances/' + i.name, 'PATCH', { channel: $('gCanal').value.trim() || null }); toast(t('rotuloSalvo')); atualizar(); } catch (e) { toast(e.message, true); } };
+    if ($('gParear')) $('gParear').onclick = () => parear(i);
+    if ($('gDiscador')) $('gDiscador').onclick = () => abrirDiscador(i);
+    $('gTeste').onclick = async () => { $('gTesteSaida').innerHTML = '<span class="fraco">' + t('testando') + '</span>'; try { $('gTesteSaida').innerHTML = testeHtml(await api('/manager/instances/' + i.name + '/selftest', 'POST', {})); } catch (e) { toast(e.message, true); $('gTesteSaida').innerHTML = ''; } };
+    $('gReiniciar').onclick = () => acao(i, 'restart', t('reiniciando', { n: i.name }));
+  }
+  if (abaAtual === 'webhook') {
+    let w = { url: '', enabled: false, events: [] }, eventos = [], entregas = [];
+    try { const r = await api('/manager/instances/' + i.name + '/webhook'); w = r.webhook || w; eventos = r.events; entregas = r.deliveries || []; } catch (e) { toast(e.message, true); }
+    c.innerHTML = `
+      <div class="zc-flash">${I.info}<div>${t('whTxt')}</div></div>
+      <div class="campo"><label>${t('url')}</label><input class="zc-input" id="wUrl" value="${esc(w.url || '')}" placeholder="https://example.com/zapcall" spellcheck="false"></div>
+      <div class="campo"><label>${t('eventos')}</label><div class="chips">${eventos.map(ev => `<label><input type="checkbox" value="${ev}" ${(w.events || []).includes(ev) ? 'checked' : ''}>${ev}</label>`).join('')}</div></div>
+      <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="wOn" ${w.enabled ? 'checked' : ''}> ${t('ativo')}</label>
+      <div><button class="zc-btn primario" id="wSalvar">${t('salvarWebhook')}</button></div>
+      <div><b style="font-size:13px">${t('ultimasEntregas')}</b><div class="entregas" style="margin-top:6px">${entregas.length ? entregas.slice().reverse().map(d => `<div><span>${ZC.formatarHora(d.at)}</span><span>${esc(d.event)}</span><span class="${d.status && d.status < 300 ? 'ok' : 'erro'}">${d.status ? 'HTTP ' + d.status : esc(d.error || '…')}</span><span class="fraco">${d.tentativas} ${t('tentativa')}</span></div>`).join('') : '<div class="fraco">' + t('nenhumaAinda') + '</div>'}</div></div>
+      ${ZC.pre('{ "event": "call_active", "instance": "' + i.name + '", "date_time": "…", "server_url": "…",\n  "data": { "callId": "…", "direction": "outbound", "status": "active", "phone": "15551234567", "isVideo": false } }')}`;
+    $('wSalvar').onclick = async () => {
+      const events = [...c.querySelectorAll('.chips input:checked')].map(x => x.value);
+      try { await api('/manager/instances/' + i.name, 'PATCH', { webhook: { url: $('wUrl').value.trim() || null, enabled: $('wOn').checked, events } }); toast(t('webhookSalvo')); desenharGaveta(); } catch (e) { toast(e.message, true); }
+    };
+  }
+  if (abaAtual === 'codigo') {
+    const tk = detalhe ? detalhe.token : t('semAcesso'), o = location.origin, p = '/instances/' + i.name;
+    const mostrado = tokenVisivel ? tk : '•'.repeat(24);
+    c.innerHTML = `
+      <div class="zc-flash aviso">${I.alerta}<div>${t('tokenTxt', { n: esc(i.name) })}</div></div>
+      <div class="campo"><label>${t('token')}</label><div style="display:flex;gap:6px;align-items:flex-start"><div style="flex:1">${ZC.pre(mostrado)}</div><button class="zc-btn" id="cVer">${tokenVisivel ? t('ocultar') : t('mostrar')}</button></div></div>
+      <div class="campo"><label>${t('exLigar')}</label>${ZC.pre(`curl -X POST ${o}/call/offer/${i.name} \\\n  -H "apikey: ${mostrado}" -H "Content-Type: application/json" \\\n  -d '{"number":"15551234567","isVideo":false}'`)}</div>
+      <div class="campo"><label>${t('exEstado')}</label>${ZC.pre(`curl ${o}/instance/connectionState/${i.name} -H "apikey: ${mostrado}"`)}</div>
+      <div class="campo"><label>${t('exWs')}</label>${ZC.pre(`${o.replace(/^http/, 'ws')}${p}/ws?clientId=my-backend&token=${mostrado}`)}</div>
+      <div class="campo"><label>${t('exDiscador')}</label>${ZC.pre(`${o}${p}/dialer?token=${mostrado}`)}</div>
+      <div><a class="zc-btn" href="/docs" target="_blank" rel="noopener">${I.livro}<span>${t('docsLink')}</span>${I.externo}</a></div>`;
+    $('cVer').onclick = () => { tokenVisivel = !tokenVisivel; desenharGaveta(); };
+  }
+  if (abaAtual === 'logs') {
+    if (!c.querySelector('#logsCaixa')) {
+      c.innerHTML = `
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <div class="busca" style="min-width:160px"><span>${I.busca}</span><input class="zc-input" id="lFiltro" placeholder="${t('filtrarLogs')}" value="${esc(logsFiltro)}"></div>
+          <button class="zc-btn pequeno ${logsAoVivo ? 'primario' : ''}" id="lVivo">${logsAoVivo ? I.pausa : I.play}<span>${t('autoAtualizar')}</span></button>
+          <button class="zc-btn pequeno" id="lCopiar">${I.copiar}<span>${t('copiarLogs')}</span></button>
+          <span class="fraco" style="font-size:12.5px;margin-left:auto" id="lConta"></span>
+        </div>
+        <div class="logs" id="logsCaixa"></div>`;
+      $('lFiltro').oninput = (e) => { logsFiltro = e.target.value; carregarLogs(); };
+      $('lVivo').onclick = () => { logsAoVivo = !logsAoVivo; desenharGaveta(); };
+      $('lCopiar').onclick = async () => { try { await navigator.clipboard.writeText(($('logsCaixa').dataset.bruto || '')); toast(t('copiarLogs') + ' ✓'); } catch {} };
+    } else { $('lVivo').className = 'zc-btn pequeno ' + (logsAoVivo ? 'primario' : ''); $('lVivo').innerHTML = (logsAoVivo ? I.pausa : I.play) + '<span>' + t('autoAtualizar') + '</span>'; }
+    await carregarLogs();
+    if (logsTimer) clearInterval(logsTimer);
+    if (logsAoVivo) logsTimer = setInterval(carregarLogs, 2000);
+  }
+  if (abaAtual === 'perigo') {
+    c.innerHTML = `<div class="perigoBox">
+      <div><div><b>${t('reiniciar')}</b><span>${t('reiniciarDesc')}</span></div><button class="zc-btn" id="pReiniciar">${t('reiniciar')}</button></div>
+      <div><div><b>${i.enabled ? t('desligar') : t('ligar')}</b><span>${t('desligarDesc')}</span></div><button class="zc-btn" id="pLigar">${i.enabled ? t('desligar') : t('ligar')}</button></div>
+      <div><div><b>${t('girarToken')}</b><span>${t('girarDesc')}</span></div><button class="zc-btn perigo" id="pGirar">${t('girarToken')}</button></div>
+      ${i.connected ? `<div><div><b>${t('desparear')}</b><span>${t('desparearDesc')}</span></div><button class="zc-btn perigo" id="pLogout">${t('desparear')}</button></div>` : ''}
+      <div><div><b>${t('excluir')}</b><span>${t('excluirDesc')}</span></div><button class="zc-btn perigo" id="pExcluir">${t('excluir')}</button></div>
+    </div>`;
+    $('pReiniciar').onclick = () => acao(i, 'restart', t('reiniciando', { n: i.name }));
+    $('pLigar').onclick = () => ligar(i, !i.enabled);
+    $('pGirar').onclick = () => confirmar(t('girarTit'), t('girarTxt'), async () => {
+      try { await api('/manager/instances/' + i.name + '/token', 'POST', {}); detalhe = (await api('/manager/instances/' + i.name)).instance; toast(t('tokenNovo')); abaAtual = 'codigo'; tokenVisivel = true; [...$('gAbas').children].forEach(x => x.classList.toggle('ativa', x.dataset.aba === 'codigo')); desenharGaveta(); } catch (e) { toast(e.message, true); }
+    });
+    if ($('pLogout')) $('pLogout').onclick = () => confirmar(t('desparearTit', { n: i.name }), t('desparearTxt'), () => acao(i, 'logout', t('despareada', { n: i.name })));
+    $('pExcluir').onclick = () => confirmar(t('excluirTit', { n: i.name }), t('excluirTxt'), async (purge) => {
+      try { await api('/manager/instances/' + i.name + (purge ? '?purge=1' : ''), 'DELETE'); toast(t('excluida', { n: i.name })); fecharGaveta(); atualizar(); } catch (e) { toast(e.message, true); }
+    }, { check: t('excluirCheck'), digitar: i.name });
+  }
+}
+async function carregarLogs() {
+  const i = gavetaAberta; if (!i || !$('logsCaixa')) return;
+  let logs = [];
+  try { logs = (await api('/manager/instances/' + i.name + '/logs')).logs || []; } catch (e) { if (logsTimer) { clearInterval(logsTimer); logsTimer = null; } return; }
+  const caixa = $('logsCaixa');
+  const noFim = caixa.scrollTop + caixa.clientHeight >= caixa.scrollHeight - 8;
+  const q = logsFiltro.toLowerCase();
+  const visiveis = logs.map((l, n) => [l, n + 1]).filter(([l]) => !q || l.toLowerCase().includes(q));
+  caixa.dataset.bruto = logs.join('\n');
+  caixa.innerHTML = visiveis.length ? visiveis.map(([l, n]) => `<div class="${classeLog(l)}"><span class="n">${n}</span>${esc(l)}</div>`).join('') : '<div class="fraco">' + t('vazio') + '</div>';
+  $('lConta').textContent = t('ultimasLinhas', { n: visiveis.length });
+  if (noFim || !caixa.dataset.rolou) { caixa.scrollTop = caixa.scrollHeight; caixa.dataset.rolou = '1'; }
+}
+function confirmar(titulo, texto, fn, op = {}) {
+  modal(esc(titulo), `<div class="fraco">${esc(texto)}</div>${op.digitar ? `<div class="campo"><input class="zc-input" id="cfNome" placeholder="${esc(t('digiteNome', { n: op.digitar }))}" autocomplete="off" spellcheck="false"></div>` : ''}${op.check ? `<label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="cfCheck"> ${esc(op.check)}</label>` : ''}`,
+    `<button class="zc-btn" onclick="fecharModal()">${t('cancelar')}</button><button class="zc-btn perigo" id="cfOk" ${op.digitar ? 'disabled' : ''}>${t('confirmar')}</button>`);
+  if (op.digitar) { $('cfNome').oninput = () => { $('cfOk').disabled = $('cfNome').value.trim() !== op.digitar; }; $('cfNome').onkeydown = (e) => { if (e.key === 'Enter' && !$('cfOk').disabled) $('cfOk').click(); }; }
+  $('cfOk').onclick = () => { const v = $('cfCheck') ? $('cfCheck').checked : undefined; fecharModal(); fn(v); };
+}
+
+// ---------------------------------------------------------- diagnostico
+let sistemaCache = null, testesCache = {};
+async function diagnostico() { try { sistemaCache = await api('/manager/system'); } catch (e) { toast(e.message, true); return; } desenharDiag(); }
+function desenharDiag() {
+  const s = sistemaCache; if (!s || tela !== 'diagnostico') return;
+  const memUsoPct = Math.round((1 - s.memLivreMb / s.memTotalMb) * 100);
+  const cargaPct = Math.min(100, Math.round((s.load[0] / s.cpus) * 100));
+  const discoPct = s.disco ? Math.round((s.disco.usadoGb / s.disco.totalGb) * 100) : 0;
+  const nivel = (p) => p > 90 ? 'critico' : p > 75 ? 'alerta' : '';
+  $('diagTiles').innerHTML = `
+    <div class="tile"><span>${t('tCpu')}</span><b>${s.cpus} · ${s.load[0]}</b><div class="medidor ${nivel(cargaPct)}"><i style="width:${cargaPct}%"></i></div></div>
+    <div class="tile"><span>${t('tMem')}</span><b>${(s.memLivreMb / 1024).toFixed(1)} GB</b><div class="medidor ${nivel(memUsoPct)}"><i style="width:${memUsoPct}%"></i></div></div>
+    <div class="tile"><span>${t('tDisco')}</span><b>${s.disco ? s.disco.livreGb + ' GB' : '—'}</b><div class="medidor ${nivel(discoPct)}"><i style="width:${discoPct}%"></i></div></div>
+    <div class="tile"><span>${t('uptime')}</span><b>${tempoNoAr(s.uptime)}</b></div>`;
+  $('diagMaquina').innerHTML = `
+    <span>${t('versao')}</span><div>ZapCall ${esc(s.version)} · ${t('node')} ${esc(s.node)} · ${esc(s.platform)}</div>
+    <span>${t('gerenteMem')}</span><div>${s.gerente ? s.gerente.rssMb + ' MB · ' + t('cpu') + ' ' + s.gerente.cpu + '%' : '—'}</div>
+    <span>${t('cfgDadosK')}</span><div><code>${esc(s.dataDir)}</code></div>`;
+  $('diagTabela').innerHTML = `<thead><tr><th>${t('inst')}</th><th>${t('node')}</th><th>${t('chromeProc')}</th><th>${t('ram')}</th><th>${t('cpu')}</th></tr></thead><tbody>` +
+    (s.instancias.length ? s.instancias.map(i => `<tr style="cursor:default"><td><b>${esc(i.nome)}</b></td><td>${i.node ? i.node.rssMb + ' MB' : '—'}</td><td>${i.chrome.processos}</td><td>${i.chrome.rssMb} MB</td><td>${i.chrome.cpu.toFixed(0)}%</td></tr>`).join('') : `<tr><td colspan="5" class="fraco">${t('vazioTit')}</td></tr>`) + '</tbody>';
+  $('diagTestesLista').innerHTML = instancias.map(i => `<div class="zc-box" style="padding:12px;display:grid;gap:8px"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><div class="avatar" style="background:${corDe(i.name)};width:28px;height:28px;font-size:11px">${esc(iniciais(i))}</div><b>${esc(i.name)}</b><span class="fraco" style="font-size:13px">${i.channel ? esc(i.channel) : ''}</span><button class="zc-btn pequeno" data-teste="${i.name}" style="margin-left:auto">${I.pulso}<span>${t('testar')}</span></button></div><div id="teste-${i.name}">${testesCache[i.name] ? testeHtml(testesCache[i.name]) : '<span class="fraco" style="font-size:13px">' + t('semTeste') + '</span>'}</div></div>`).join('');
+  $('diagTestesLista').querySelectorAll('[data-teste]').forEach(b => b.onclick = async () => {
+    const n = b.dataset.teste; $('teste-' + n).innerHTML = '<span class="fraco">' + t('testando') + '</span>';
+    try { testesCache[n] = await api('/manager/instances/' + n + '/selftest', 'POST', {}); $('teste-' + n).innerHTML = testeHtml(testesCache[n]); } catch (e) { toast(e.message, true); }
+  });
+}
+$('bDiagAtualizar').onclick = diagnostico;
+setInterval(() => { if (tela === 'diagnostico' && chave) diagnostico(); }, 10000);
+
+// --------------------------------------------------------- configuracoes
+let configCache = null;
+async function configuracoes() {
+  if (!configCache) { try { configCache = await api('/manager/config'); } catch (e) { toast(e.message, true); return; } }
+  const c = configCache;
+  $('cfgIdioma').innerHTML = Object.entries(ZC.LANGS).map(([k, v]) => `<button class="zc-btn pequeno ${ZC.lang === k ? 'primario' : ''}" onclick="ZC.setLang('${k}')">${v.nome}</button>`).join('');
+  $('cfgTema').innerHTML = [['system', 'sistema', 'monitor'], ['light', 'claro', 'sol'], ['dark', 'escuro', 'lua']].map(([v, k, ic]) => `<button class="zc-btn pequeno ${ZC.theme === v ? 'primario' : ''}" onclick="ZC.setTheme('${v}')">${I[ic]}<span>${t(k)}</span></button>`).join('');
+  $('cfgAcesso').innerHTML = `
+    <span>${t('cfgChaveK')}</span><div><code>${esc(c.apiKeyMascarada)}</code> — ${t('cfgChaveTxt', { o: c.apiKeyOrigem === 'env' ? t('origemEnv') : t('origemArquivo') })}</div>
+    <span>${t('cfgTokenK')}</span><div>${t('cfgTokenTxt')}</div>
+    <span>${t('cfgOrigensK')}</span><div>${c.allowedOrigins && c.allowedOrigins.length ? c.allowedOrigins.map(o => '<code>' + esc(o) + '</code>').join(' ') : t('cfgOrigensTxt')}</div>
+    <span>${t('sairK')}</span><div><button class="zc-btn pequeno" onclick="document.getElementById('bSair').click()">${t('sairTxt')}</button></div>`;
+  $('cfgServico').innerHTML = `
+    <span>${t('versao')}</span><div>ZapCall ${esc(c.version)}</div>
+    <span>${t('cfgPortaK')}</span><div><code>${esc(c.host)}:${c.port}</code></div>
+    <span>${t('cfgPortasK')}</span><div>${t('cfgPortasTxt', { p: c.portBase })}</div>
+    <span>${t('cfgDadosK')}</span><div><code>${esc(c.dataDir)}</code> — ${t('cfgDadosTxt')}</div>
+    <span>${t('cfgChromeK')}</span><div>${c.chromePath ? '<code>' + esc(c.chromePath) + '</code>' : t('autodetectado')}</div>
+    <span>${t('cfgDdiK')}</span><div>${c.countryCode ? '<code>+' + esc(c.countryCode) + '</code>' : t('cfgDdiTxt')}</div>
+    <span>${t('cfgInstK')}</span><div>${c.instancias}</div>
+    <span>${t('cfgDocsK')}</span><div><a href="/docs">/docs</a> — ${t('cfgDocsTxt')}</div>`;
+}
+
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { fecharModal(); fecharGaveta(); } });
+aplicarTextos();
+entrar(!!chave);
+</script>
+</html>

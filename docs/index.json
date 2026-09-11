@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "languages": {
+    "pt": { "name": "Português", "short": "PT", "locale": "pt-BR" },
+    "en": { "name": "English", "short": "EN", "locale": "en-US" },
+    "es": { "name": "Español", "short": "ES", "locale": "es-ES" }
+  },
+  "groups": [
+    { "id": "start", "title": { "pt": "Começando", "en": "Getting started", "es": "Primeros pasos" } },
+    { "id": "reference", "title": { "pt": "Referência", "en": "Reference", "es": "Referencia" } },
+    { "id": "calls", "title": { "pt": "Chamadas", "en": "Calls", "es": "Llamadas" } },
+    { "id": "examples", "title": { "pt": "Exemplos", "en": "Examples", "es": "Ejemplos" } },
+    { "id": "operations", "title": { "pt": "Operação", "en": "Operations", "es": "Operación" } }
+  ],
+  "pages": [
+    { "id": "installation", "group": "start", "title": { "pt": "Instalação", "en": "Installation", "es": "Instalación" } },
+    { "id": "instances", "group": "start", "title": { "pt": "Criação de instâncias", "en": "Creating instances", "es": "Creación de instancias" } },
+    { "id": "authentication", "group": "start", "title": { "pt": "Autenticação", "en": "Authentication", "es": "Autenticación" } },
+    { "id": "rest-api", "group": "reference", "title": { "pt": "API REST", "en": "REST API", "es": "API REST" } },
+    { "id": "websocket", "group": "reference", "title": { "pt": "WebSocket", "en": "WebSocket", "es": "WebSocket" } },
+    { "id": "events", "group": "reference", "title": { "pt": "Eventos", "en": "Events", "es": "Eventos" } },
+    { "id": "status", "group": "reference", "title": { "pt": "Status", "en": "Status", "es": "Estado" } },
+    { "id": "errors", "group": "reference", "title": { "pt": "Erros", "en": "Errors", "es": "Errores" } },
+    { "id": "audio-calls", "group": "calls", "title": { "pt": "Chamadas de áudio", "en": "Audio calls", "es": "Llamadas de audio" } },
+    { "id": "video-calls", "group": "calls", "title": { "pt": "Chamadas de vídeo", "en": "Video calls", "es": "Videollamadas" } },
+    { "id": "curl", "group": "examples", "title": { "pt": "Exemplos com curl", "en": "curl examples", "es": "Ejemplos con curl" } },
+    { "id": "javascript", "group": "examples", "title": { "pt": "Exemplos em JavaScript", "en": "JavaScript examples", "es": "Ejemplos en JavaScript" } },
+    { "id": "crm-integration", "group": "examples", "title": { "pt": "Integração com CRM", "en": "CRM integration", "es": "Integración con CRM" } },
+    { "id": "security", "group": "operations", "title": { "pt": "Segurança", "en": "Security", "es": "Seguridad" } },
+    { "id": "docker", "group": "operations", "title": { "pt": "Docker", "en": "Docker", "es": "Docker" } },
+    { "id": "environment", "group": "operations", "title": { "pt": "Variáveis de ambiente", "en": "Environment variables", "es": "Variables de entorno" } }
+  ]
+}

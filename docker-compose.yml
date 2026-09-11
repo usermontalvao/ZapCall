@@ -1,0 +1,40 @@
+# ZapCall — manager + N instances (one Chrome each) in one container.
+# Host networking keeps the instance ports on the loopback and lets a reverse
+# proxy on the same machine reach 127.0.0.1:18475. With host networking the
+# service MUST stay bound to 127.0.0.1 (see docs/<lang>/docker.md).
+services:
+  zapcall:
+    image: ghcr.io/usermontalvao/zapcall:latest
+    # build: .
+    container_name: zapcall
+    network_mode: host
+    restart: unless-stopped
+    shm_size: 1gb
+    environment:
+      HOST: 127.0.0.1
+      PORT: ${PORT:-18475}
+      DATA_DIR: /data
+      # Global key (header `apikey`). Empty = generated on first boot, stored in /data/manager.json.
+      ZAPCALL_API_KEY: ${ZAPCALL_API_KEY:-}
+      # Loopback ports for the instances, one per number, from this one upwards.
+      INSTANCE_PORT_BASE: ${INSTANCE_PORT_BASE:-18500}
+      # Low-latency default. Use balanced/hd only after measuring CPU and upload.
+      ZAPCALL_VIDEO_PROFILE: ${ZAPCALL_VIDEO_PROFILE:-realtime}
+      # Country code prepended to national numbers (55, 1, 34...). Empty = national numbers are rejected.
+      DEFAULT_COUNTRY_CODE: ${DEFAULT_COUNTRY_CODE:-}
+      # Browser origins allowed on CORS and WebSocket. Empty = any.
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
+      VNC: ${VNC:-0}
+      VERBOSE: ${VERBOSE:-1}
+    volumes:
+      # Registry, keys and the paired sessions of EVERY instance. Back it up; never share it.
+      - zapcall_data:/data
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:'+process.env.PORT+'/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  zapcall_data:

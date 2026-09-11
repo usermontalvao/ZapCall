@@ -1,0 +1,50 @@
+{
+  "name": "zapcall",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Voice and video calls over WhatsApp, as an API: the official WhatsApp Web in a controlled Chrome, many instances behind one manager, Evolution-style routes.",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "start": "node src/manager.mjs",
+    "start:single": "node src/app.mjs",
+    "test": "node --test test/*.test.mjs",
+    "check": "node scripts/check.mjs",
+    "probe": "node scripts/probe.mjs",
+    "pair": "node scripts/pair.mjs",
+    "call": "node scripts/call.mjs",
+    "qr": "node scripts/qr.mjs",
+    "demo": "node scripts/demo.mjs",
+    "screenshots": "node scripts/screenshots.mjs"
+  },
+  "dependencies": {
+    "@wppconnect/wa-js": "^4.6.0",
+    "puppeteer-core": "^25.10.0",
+    "qrcode": "^1.5.4",
+    "ws": "^8.21.3"
+  },
+  "devDependencies": {
+    "jsqr": "^1.4.0"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/usermontalvao/ZapCall"
+  },
+  "keywords": [
+    "whatsapp",
+    "voip",
+    "calls",
+    "video",
+    "api",
+    "websocket",
+    "evolution-api",
+    "crm"
+  ],
+  "homepage": "https://github.com/usermontalvao/ZapCall#readme",
+  "bugs": {
+    "url": "https://github.com/usermontalvao/ZapCall/issues"
+  }
+}

@@ -1,6 +1,6 @@
 {
   "name": "zapcall",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "description": "Voice and video calls over WhatsApp, as an API: the official WhatsApp Web in a controlled Chrome, many instances behind one manager, Evolution-style routes.",

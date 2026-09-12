@@ -4,6 +4,8 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-09-11
+
 ### Fixed
 - The operator's voice and camera never reached the phone when a second `/page` socket (an iframe of WhatsApp Web runs the injected scripts too) connected and closed during the session: the instance server kept only the last page socket and dropped every frame as `page-disconnected` while the main frame was alive. The server now tracks every page socket, treats the one that sends media as the real page and falls back to another live socket on close. `/api/diag` reports `paginas` and `paginaAtiva`.
 
@@ -40,5 +42,6 @@ All notable changes to this project are documented here. The format follows [Kee
 - Project renamed to **ZapCall** (package `zapcall`, env `ZAPCALL_*`, globals `window.__zapcall*`).
 - READMEs in three languages; `SECURITY.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `docs/ARCHITECTURE.md`, issue and PR templates.
 
-[Unreleased]: https://github.com/usermontalvao/ZapCall/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/usermontalvao/ZapCall/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/usermontalvao/ZapCall/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/usermontalvao/ZapCall/releases/tag/v0.1.0

@@ -59,8 +59,24 @@ export function criarServidor(opcoes) {
   const chamadas = new Map();
   /** Clientes atachados (backends, discador): ws -> clientId. */
   const clientes = new Map();
-  /** O socket da PAGINA (um so, no loopback). */
+  /**
+   * O socket da PAGINA — o que recebe a midia do operador.
+   *
+   * Nao e "o ultimo que conectou". Os scripts sao injetados por DOCUMENTO
+   * (Page.addScriptToEvaluateOnNewDocument), e o WhatsApp Web abre iframes
+   * passageiros: cada um roda o inject e abre o proprio /page. Medido em
+   * 11/09/2026: a pagina principal dizia `ponte.aberta` e mandava 47 mil
+   * quadros, enquanto o servidor contava `semPagina` em todos os quadros do
+   * operador — o iframe conectou depois, virou `pagina`, fechou, e o servidor
+   * zerou a referencia mesmo com o socket principal vivo. Voz e camera do
+   * operador nao chegavam ao celular, sem erro em lugar nenhum.
+   *
+   * Regra: todos os sockets de pagina ficam em `paginas`; quem MANDA midia e
+   * a pagina de verdade (iframe nao tem microfone nem chamada) e passa a ser
+   * `pagina`; ao fechar, cai para qualquer outro socket vivo.
+   */
   let pagina = null;
+  const paginas = new Set();
   /**
    * O UNICO socket cuja midia sobe para a pagina durante a chamada.
    *
@@ -456,7 +472,7 @@ export function criarServidor(opcoes) {
       }
 
       if (rota === '/api/diag' && req.method === 'GET') {
-        return json(res, 200, { diag: await acoes.diagnostico(), status: retrato(), servidor: { clientes: clientes.size, fonteMidia: fonteMidia ? clientes.get(fonteMidia) || null : null, mediaConfig, descartes } });
+        return json(res, 200, { diag: await acoes.diagnostico(), status: retrato(), servidor: { clientes: clientes.size, fonteMidia: fonteMidia ? clientes.get(fonteMidia) || null : null, paginas: paginas.size, paginaAtiva: !!(pagina && pagina.readyState === 1), mediaConfig, descartes } });
       }
 
       return json(res, 404, { error: 'not_found' });
@@ -569,13 +585,25 @@ export function criarServidor(opcoes) {
     ws.on('close', () => { clientes.delete(ws); if (fonteMidia === ws) fonteMidia = null; });
   });
 
-  wssPagina.on('connection', (ws) => {
-    try { ws._socket && ws._socket.setNoDelay(true); } catch {}
+  /** Troca a pagina que recebe a midia do operador (e exige IDR de novo). */
+  function adotarPagina(ws) {
+    if (pagina === ws) return;
     pagina = ws;
     paginaEsperaKeyframe = true;
+    if (fonteMidia) pedirKeyframe(fonteMidia, 'page-changed');
+  }
+
+  wssPagina.on('connection', (ws) => {
+    try { ws._socket && ws._socket.setNoDelay(true); } catch {}
+    paginas.add(ws);
+    // So assume o lugar se nao ha pagina viva: um iframe que conecta no meio
+    // da chamada nao pode roubar a midia do frame principal.
+    if (!pagina || pagina.readyState !== 1) adotarPagina(ws);
     ws.binaryType = 'arraybuffer';
-    log('pagina conectou');
+    log('pagina conectou (' + paginas.size + ')');
     ws.on('message', (dados, ehBinario) => {
+      // Midia so sai do frame principal: quem manda e a pagina de verdade.
+      if (ehBinario) adotarPagina(ws);
       if (!ehBinario) {
         // A pagina pode pedir um IDR quando seu decoder ficar para tras. Nao
         // repassamos nenhum outro texto privado da pagina para clientes.
@@ -593,7 +621,15 @@ export function criarServidor(opcoes) {
         try { cliente.send(dados, { binary: true }); } catch {}
       }
     });
-    ws.on('close', () => { if (pagina === ws) { pagina = null; paginaEsperaKeyframe = true; } });
+    ws.on('close', () => {
+      paginas.delete(ws);
+      if (pagina !== ws) return;
+      pagina = null;
+      paginaEsperaKeyframe = true;
+      const outra = [...paginas].find(p => p.readyState === 1);
+      if (outra) adotarPagina(outra);
+      log('pagina fechou; ' + (outra ? 'outra assumiu' : 'nenhuma restou'));
+    });
   });
 
   const recusarUpgrade = (socket, codigo, texto) => { try { socket.write('HTTP/1.1 ' + codigo + ' ' + texto + '\r\nConnection: close\r\n\r\n'); } catch {} socket.destroy(); };

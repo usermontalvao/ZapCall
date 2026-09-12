@@ -4,6 +4,9 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Fixed
+- The operator's voice and camera never reached the phone when a second `/page` socket (an iframe of WhatsApp Web runs the injected scripts too) connected and closed during the session: the instance server kept only the last page socket and dropped every frame as `page-disconnected` while the main frame was alive. The server now tracks every page socket, treats the one that sends media as the real page and falls back to another live socket on close. `/api/diag` reports `paginas` and `paginaAtiva`.
+
 ### Added
 - Dark-mode screenshots, roadmap, support section and `SUPPORTERS.md`; `Sponsor` button (`.github/FUNDING.yml`).
 - Release workflow: pushing a `v*` tag publishes the Docker image to GHCR and a GitHub Release with the notes from this file.

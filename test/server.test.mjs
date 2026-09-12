@@ -119,3 +119,47 @@ test('config do encoder e pedido de keyframe atravessam somente entre pagina e d
 
   for (const ws of [pagina, dono, outro]) ws.close();
 });
+
+test('um segundo socket de pagina (iframe) que fecha nao apaga a pagina principal', async t => {
+  const server = criarServidor({ port: 0, token: '' });
+  await server.ouvir();
+  t.after(() => server.fechar());
+  server.ligarAcoes({});
+  const base = `ws://127.0.0.1:${server.port}`;
+  const principal = new WebSocket(base + '/page');
+  const dono = new WebSocket(base + '/ws?clientId=dono');
+  await Promise.all([once(principal, 'open'), once(dono, 'open')]);
+  server.aplicarEvento({ type: 'call', call: { callId: 'p1', direction: 'outbound', status: 'active' } });
+  server.chamadas.get('p1').owner = 'dono';
+  const naPrincipal = [];
+  principal.on('message', (d, bin) => { if (bin) naPrincipal.push(Buffer.from(d)[3]); });
+  const tique = () => new Promise(r => setTimeout(r, 60));
+
+  // A pagina principal e quem manda midia (o microfone do celular chega por ela).
+  principal.send(Buffer.from([1, 0, 0, 0, 0]));
+  // Um iframe do WhatsApp Web roda o inject e abre o proprio /page...
+  const iframe = new WebSocket(base + '/page');
+  await once(iframe, 'open');
+  await tique();
+  // ...e fecha pouco depois. Antes, isto zerava `pagina` com a principal viva.
+  iframe.close();
+  await once(iframe, 'close');
+  await tique();
+
+  dono.send(Buffer.from([2, 1, 0, 7, 1]));
+  await tique();
+  assert.deepEqual(naPrincipal, [7], 'a midia do operador continua chegando na pagina principal');
+  assert.equal(server.descartes.semPagina, 0);
+
+  // O inverso tambem: iframe conectado ANTES nao rouba a midia de quem manda.
+  const outroIframe = new WebSocket(base + '/page');
+  await once(outroIframe, 'open');
+  const noIframe = [];
+  outroIframe.on('message', (d, bin) => { if (bin) noIframe.push(1); });
+  await tique();
+  dono.send(Buffer.from([2, 1, 0, 8, 1]));
+  await tique();
+  assert.deepEqual(naPrincipal, [7, 8]);
+  assert.equal(noIframe.length, 0, 'o iframe nao recebe a midia do operador');
+  for (const ws of [principal, outroIframe, dono]) ws.close();
+});
